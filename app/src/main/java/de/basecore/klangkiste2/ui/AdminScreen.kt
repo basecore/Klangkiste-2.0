@@ -1,13 +1,17 @@
 package de.basecore.klangkiste2.ui
 
 import android.app.Application
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,8 +40,8 @@ import java.net.URL
 fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp: () -> Unit) {
     val candidates by vm.candidates.collectAsState()
     val settings by vm.settings.collectAsState()
-    val downloader: OfflineAudioViewModel = viewModel()
-    val downloading by downloader.active.collectAsState()
+    val media: OfflineAudioViewModel = viewModel()
+    val downloading by media.active.collectAsState()
     val smart = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let { uri -> vm.scanFolder(uri, true) } }
     val flat = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let { uri -> vm.scanFolder(uri, false) } }
     val repair = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let { uri -> vm.relinkFolder(uri, settings.storageMode == "copy") } }
@@ -46,16 +50,18 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
     val saveJson = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { it?.let(vm::exportBackup) }
     var query by rememberSaveable { mutableStateOf("") }
     var section by rememberSaveable { mutableStateOf("") }
-    var editing by remember { mutableStateOf<TrackEntity?>(null) }
+    var editId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<TrackEntity?>(null) }
     var clear by remember { mutableStateOf(false) }
+    var selecting by rememberSaveable { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(setOf<String>()) }
+    var areaDialog by remember { mutableStateOf(false) }
     val visible = remember(tracks, query) { tracks.filter { row ->
         val t = row.track
-        ImportFilter.matches(listOf(t.title, t.description, t.genre, t.tagsCsv).joinToString(" "), t.ageRecommendation, query)
+        ImportFilter.matches("${t.title} ${t.description} ${t.genre} ${t.tagsCsv}", t.ageRecommendation, query)
     } }
-    LazyVerticalGrid(columns = GridCells.Fixed(if (settings.adminListView) 1 else 2),
-        modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyVerticalGrid(GridCells.Fixed(if (settings.adminListView) 1 else 2), Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Elternbereich", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF74B9FF))
@@ -90,6 +96,17 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                     }
                 }
                 if (visible.isEmpty()) Text(if (tracks.isEmpty()) "Noch keine Hörspiele gespeichert." else "Keine passenden Hörspiele gefunden.")
+                if (tracks.isNotEmpty()) TextButton(onClick = { selecting = !selecting; selected = emptySet() }) {
+                    Text(if (selecting) "Auswahl beenden" else "Mehrere markieren")
+                }
+                if (selecting) {
+                    Text("${selected.size} markiert (auch über mehrere Suchergebnisse hinweg)")
+                    Row {
+                        TextButton(onClick = { selected = selected + visible.map { it.track.id } }) { Text("Sichtbare markieren") }
+                        TextButton(onClick = { selected = emptySet() }) { Text("Auswahl leeren") }
+                    }
+                    Button(onClick = { areaDialog = true }, enabled = selected.isNotEmpty()) { Text("Bereich zuweisen") }
+                }
             }
         }
         items(visible, key = { it.track.id }) { item ->
@@ -99,24 +116,25 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF42494C), contentColor = Color.White)) {
                 if (!settings.adminListView) CoverArt(track.coverUri, Modifier.fillMaxWidth().aspectRatio(1f))
                 Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (settings.adminListView) CoverArt(track.coverUri, Modifier.size(48.dp))
+                    if (settings.adminListView && !selecting) CoverArt(track.coverUri, Modifier.size(48.dp))
                     Column(Modifier.weight(1f)) {
                         Text(track.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(when { busy -> "Lädt …"; track.hiddenInLibrary -> "Ausgeblendet"; else -> "${item.audioParts.size} Datei(en)" }, style = MaterialTheme.typography.bodySmall)
+                        Text(if (busy) "Lädt …" else storageSummary(item), style = MaterialTheme.typography.bodySmall)
+                        if (track.hiddenInLibrary) Text("Ausgeblendet", style = MaterialTheme.typography.bodySmall)
+                        val areas = track.libraryAreas()
+                        if (areas.isNotEmpty()) Text(areas.joinToString(" · "), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    Box {
+                    if (selecting) Checkbox(track.id in selected, { checked -> selected = if (checked) selected + track.id else selected - track.id })
+                    else Box {
                         TextButton(onClick = { menu = true }, contentPadding = PaddingValues(0.dp)) { Text("Menü") }
                         DropdownMenu(menu, { menu = false }) {
                             DropdownMenuItem(text = { Text("Abspielen") }, enabled = item.audioParts.isNotEmpty(), onClick = { menu = false; vm.playTrack(item) })
-                            DropdownMenuItem(text = { Text("Bearbeiten") }, onClick = { menu = false; editing = track })
+                            DropdownMenuItem(text = { Text("Bearbeiten") }, onClick = { menu = false; editId = track.id })
                             DropdownMenuItem(text = { Text("NFC-Tag zuordnen") }, onClick = { menu = false; vm.beginNfcPairing(track.id) })
                             DropdownMenuItem(text = { Text(if (track.hiddenInLibrary) "Einblenden" else "Ausblenden") }, onClick = { menu = false; vm.toggleHidden(track) })
-                            if (item.audioParts.isEmpty() && !track.remoteAudioUrl.isNullOrBlank()) {
-                                DropdownMenuItem(text = { Text(if (busy) "Audio wird heruntergeladen …" else "Audio herunterladen") }, enabled = !busy, onClick = {
-                                    menu = false
-                                    downloader.download(track.id, vm::showMessage)
-                                })
-                            }
+                            if (item.audioParts.isEmpty() && !track.remoteAudioUrl.isNullOrBlank()) DropdownMenuItem(
+                                text = { Text(if (busy) "Audio wird heruntergeladen …" else "Audio herunterladen") }, enabled = !busy,
+                                onClick = { menu = false; media.download(track.id, vm::showMessage) })
                             DropdownMenuItem(text = { Text("Löschen") }, enabled = !busy, onClick = { menu = false; deleting = track })
                         }
                     }
@@ -125,15 +143,54 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
         }
     }
     if (candidates.isNotEmpty()) ImportPreview(candidates, settings.storageMode == "copy", vm::clearCandidates, vm::toggleCandidate) { items, copy -> vm.importCandidates(items, copy) }
-    editing?.let { EditTrack(it, { editing = null }) { edited -> vm.saveEditedTrack(edited); editing = null } }
+    tracks.firstOrNull { it.track.id == editId }?.let { item ->
+        EditTrack(item, { editId = null }) { edited, cover, remove -> media.saveTrack(edited, cover, remove, vm::showMessage); editId = null }
+    }
+    if (areaDialog) AreaDialog(tracks.flatMap { it.track.libraryAreas() }.distinctBy { it.lowercase() }.sorted(), selected.size, { areaDialog = false }) { name ->
+        media.assignArea(selected, name, vm::showMessage)
+        areaDialog = false; selecting = false; selected = emptySet()
+    }
     deleting?.let { DeleteConfirmation("Hörspiel löschen?", it.title, { deleting = null }) { vm.deleteTrack(it); deleting = null } }
     if (clear) DeleteConfirmation("Datenbank leeren?", "Tracks, NFC-Zuordnungen und Verlauf werden gelöscht.", { clear = false }) { vm.clearAll(); clear = false }
 }
 
-@Composable private fun ImportHint(text: String) {
-    Text(text, Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodySmall)
+private fun storageSummary(item: TrackWithAudio): String = when {
+    item.audioParts.isEmpty() -> if (item.track.remoteAudioUrl.isNullOrBlank()) "Keine Audiodatei" else "Nicht heruntergeladen"
+    item.audioParts.all { it.managedCopy } -> "In der App gespeichert"
+    item.audioParts.none { it.managedCopy } -> "Verknüpft"
+    else -> "App-Speicher und Verknüpfungen"
 }
 
+private fun audioLocation(raw: String): String {
+    val uri = Uri.parse(raw)
+    if (uri.scheme == "file") return uri.path ?: raw
+    if (uri.authority == "com.android.externalstorage.documents") {
+        val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
+        if (docId != null) {
+            val volume = docId.substringBefore(':')
+            val relative = docId.substringAfter(':', "")
+            val label = if (volume.equals("primary", true)) "Interner gemeinsamer Speicher" else "Datenträger $volume"
+            return "$label / $relative\n$raw"
+        }
+    }
+    return raw
+}
+
+@Composable private fun AreaDialog(existing: List<String>, count: Int, close: () -> Unit, save: (String) -> Unit) {
+    var name by rememberSaveable { mutableStateOf("") }
+    val valid = name.isNotBlank() && name.length <= 60 && '|' !in name
+    AlertDialog(onDismissRequest = close, title = { Text("Bereich zuweisen") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("$count Hörbücher einem vorhandenen oder neuen Bereich zuordnen. Andere Bereiche bleiben erhalten.")
+            OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name des Bereichs") }, isError = name.isNotEmpty() && !valid)
+            LazyColumn(Modifier.heightIn(max = 160.dp)) {
+                items(existing) { label -> TextButton(onClick = { name = label }) { Text(label) } }
+            }
+        }
+    }, confirmButton = { Button(onClick = { save(name.trim()) }, enabled = valid) { Text("Zuweisen") } }, dismissButton = { TextButton(onClick = close) { Text("Abbrechen") } })
+}
+
+@Composable private fun ImportHint(text: String) { Text(text, Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodySmall) }
 @Composable private fun AdminSection(title: String, open: Boolean, toggle: () -> Unit, content: @Composable () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF42494C), contentColor = Color.White)) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -142,7 +199,6 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
         }
     }
 }
-
 @Composable private fun AdminAction(title: String, run: () -> Unit) {
     OutlinedButton(onClick = run, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) { Text(title) }
 }
@@ -152,8 +208,7 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
     var min by rememberSaveable { mutableStateOf("") }
     var max by rememberSaveable { mutableStateOf("") }
     var copy by rememberSaveable { mutableStateOf(defaultCopy) }
-    val low = min.toIntOrNull()
-    val high = max.toIntOrNull()
+    val low = min.toIntOrNull(); val high = max.toIntOrNull()
     val invalid = (min.isNotEmpty() && low == null) || (max.isNotEmpty() && high == null) || (low != null && high != null && low > high)
     val visible = if (invalid) emptyList() else items.filter { ImportFilter.matches("${it.title} ${it.description}", it.ageRecommendation, query, low, high) }
     val selected = items.filter { it.selected }
@@ -174,10 +229,7 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                 items(visible, key = { it.id }) { row ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(row.selected, { toggle(row.id) })
-                        Column {
-                            Text(row.title)
-                            Text(row.ageRecommendation?.let { "Ab $it J." } ?: "Alter unbekannt", style = MaterialTheme.typography.bodySmall)
-                        }
+                        Column { Text(row.title); Text(row.ageRecommendation?.let { "Ab $it J." } ?: "Alter unbekannt", style = MaterialTheme.typography.bodySmall) }
                     }
                 }
             }
@@ -189,20 +241,44 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
         dismissButton = { TextButton(onClick = close) { Text("Abbrechen") } })
 }
 
-@Composable private fun EditTrack(track: TrackEntity, close: () -> Unit, save: (TrackEntity) -> Unit) {
+@Composable private fun EditTrack(item: TrackWithAudio, close: () -> Unit, save: (TrackEntity, Uri?, Boolean) -> Unit) {
+    val track = item.track
     var title by rememberSaveable(track.id) { mutableStateOf(track.title) }
     var description by rememberSaveable(track.id) { mutableStateOf(track.description) }
     var age by rememberSaveable(track.id) { mutableStateOf(track.ageRecommendation?.toString().orEmpty()) }
     var genre by rememberSaveable(track.id) { mutableStateOf(track.genre) }
+    var cover by rememberSaveable(track.id) { mutableStateOf<String?>(null) }
+    var remove by rememberSaveable(track.id) { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) { cover = uri.toString(); remove = false } }
+    val preview = if (remove) null else cover ?: track.coverUri
     AlertDialog(onDismissRequest = close, title = { Text("Eintrag bearbeiten") }, text = {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        LazyColumn(Modifier.heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CoverArt(preview, Modifier.size(64.dp), "Cover-Vorschau")
+                    TextButton(onClick = { picker.launch(arrayOf("image/*")) }) { Text(if (preview == null) "Cover hinzufügen" else "Cover ändern") }
+                }
+                if (preview != null) TextButton(onClick = { cover = null; remove = true }) { Text("Cover entfernen") }
+            }
             item { OutlinedTextField(title, { title = it }, label = { Text("Titel") }, singleLine = true) }
             item { OutlinedTextField(description, { description = it }, label = { Text("Beschreibung") }) }
             item { OutlinedTextField(age, { age = it.filter(Char::isDigit) }, label = { Text("Alter") }, singleLine = true) }
             item { OutlinedTextField(genre, { genre = it }, label = { Text("Genre") }, singleLine = true) }
+            item { Text("Audio-Speicherort", fontWeight = FontWeight.Bold); Text(storageSummary(item)) }
+            if (item.audioParts.isEmpty() && !track.remoteAudioUrl.isNullOrBlank()) item {
+                SelectionContainer { Text(track.remoteAudioUrl.orEmpty(), style = MaterialTheme.typography.bodySmall) }
+            }
+            items(item.audioParts.sortedBy { it.position }) { part ->
+                Column {
+                    Text(part.displayName, fontWeight = FontWeight.Bold)
+                    Text(if (part.managedCopy) "Im App-Speicher" else "Verknüpfung", style = MaterialTheme.typography.bodySmall)
+                    SelectionContainer { Text(audioLocation(part.uriString), style = MaterialTheme.typography.bodySmall) }
+                }
+            }
         }
-    }, confirmButton = { TextButton(enabled = title.isNotBlank() && (age.isBlank() || age.toIntOrNull() != null), onClick = { save(track.copy(title = title.trim(), description = description, ageRecommendation = age.toIntOrNull(), genre = genre.trim())) }) { Text("Speichern") } },
-        dismissButton = { TextButton(onClick = close) { Text("Abbrechen") } })
+    }, confirmButton = { TextButton(enabled = title.isNotBlank() && (age.isBlank() || age.toIntOrNull() != null), onClick = {
+        save(track.copy(title = title.trim(), description = description, ageRecommendation = age.toIntOrNull(), genre = genre.trim()), cover?.let { Uri.parse(it) }, remove)
+    }) { Text("Speichern") } }, dismissButton = { TextButton(onClick = close) { Text("Abbrechen") } })
 }
 
 @Composable private fun DeleteConfirmation(title: String, description: String, close: () -> Unit, delete: () -> Unit) {
@@ -215,59 +291,118 @@ internal class OfflineAudioViewModel(private val app: Application) : AndroidView
     private val _active = MutableStateFlow<Set<String>>(emptySet())
     val active = _active.asStateFlow()
 
-    fun download(id: String, message: (String) -> Unit) {
-        viewModelScope.launch {
-            if (id in _active.value) return@launch
-            _active.value = _active.value + id
-            var target: File? = null
-            var linked = false
-            try {
-                val track = db.trackDao().get(id) ?: error("Eintrag nicht gefunden")
-                if (db.audioPartDao().getForTrack(id).isNotEmpty()) return@launch
-                val url = track.remoteAudioUrl?.takeIf { it.startsWith("https://") } ?: error("Kein HTTPS-Audiolink vorhanden")
-                val expected = runCatching { JSONArray(track.expectedAudioNamesJson).optString(0) }.getOrDefault("")
-                val name = expected.ifBlank { Uri.parse(url).lastPathSegment.orEmpty().ifBlank { "audio.mp3" } }
-                val suffix = "_" + name.replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(90)
-                withContext(Dispatchers.IO) {
-                    val dir = File(app.filesDir, "klangkiste/audio").apply { mkdirs() }
-                    val file = File.createTempFile("download_", suffix, dir)
-                    target = file
-                    val conn = URL(url).openConnection() as HttpURLConnection
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 30000
-                    try {
-                        val status = conn.responseCode
-                        if (status !in 200..299 || conn.url.protocol != "https") error("Unerwartete HTTP-Antwort: $status")
-                        val type = conn.contentType.orEmpty().substringBefore(';').trim().lowercase()
-                        if (type.startsWith("text/") || type == "application/json" || type == "application/xhtml+xml") error("Der Link liefert keine Audiodatei")
-                        conn.inputStream.use { input -> file.outputStream().use { output ->
-                            val buffer = ByteArray(64 * 1024)
-                            while (true) {
-                                ensureActive()
-                                val bytes = input.read(buffer)
-                                if (bytes < 0) break
-                                output.write(buffer, 0, bytes)
-                            }
-                        } }
-                        val length = conn.getHeaderField("Content-Length")?.toLongOrNull()
-                        if (file.length() == 0L || (length != null && file.length() != length)) error("Download unvollständig")
-                    } finally { conn.disconnect() }
-                }
-                val part = AudioPartEntity(trackId = id, position = 0, uriString = Uri.fromFile(checkNotNull(target)).toString(), displayName = name, managedCopy = true)
-                ensureActive()
-                withContext(NonCancellable) {
-                    linked = db.withTransaction {
-                        if (db.trackDao().get(id)?.remoteAudioUrl != url || db.audioPartDao().getForTrack(id).isNotEmpty()) false
-                        else { db.audioPartDao().upsertAll(listOf(part)); true }
+    fun assignArea(ids: Set<String>, name: String, message: (String) -> Unit) = viewModelScope.launch {
+        val label = name.trim()
+        if (label.isBlank() || label.length > 60 || '|' in label) return@launch
+        try {
+            val changed = db.withTransaction {
+                ids.count { id ->
+                    val track = db.trackDao().get(id)
+                    if (track == null || track.libraryAreas().any { it.equals(label, true) }) false
+                    else {
+                        val tags = track.tagsCsv.split('|').filter { it.isNotBlank() } + (AREA_TAG_PREFIX + label)
+                        db.trackDao().upsert(track.copy(tagsCsv = tags.joinToString("|")))
+                        true
                     }
                 }
-                message(if (linked) "„${track.title}“ ist jetzt offline verfügbar." else "Eintrag wurde geändert; Audio nicht hinzugefügt.")
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { message("Audio-Download fehlgeschlagen: ${e.localizedMessage ?: "Unbekannter Fehler"}") }
-            finally {
-                if (!linked) withContext(NonCancellable + Dispatchers.IO) { target?.delete() }
-                _active.value = _active.value - id
             }
+            message(if (changed == 0) "Keine neue Zuordnung nötig." else "$changed Hörbücher dem Bereich „$label“ zugeordnet.")
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { message("Bereich konnte nicht gespeichert werden: ${e.localizedMessage}") }
+    }
+
+    fun saveTrack(edited: TrackEntity, cover: Uri?, remove: Boolean, message: (String) -> Unit) = viewModelScope.launch {
+        var newFile: File? = null
+        var committed = false
+        try {
+            val name = if (cover == null) null else withContext(Dispatchers.IO) {
+                val resolver = app.contentResolver
+                val filename = runCatching { resolver.query(cover, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { if (it.moveToFirst()) it.getString(0) else null } }.getOrNull() ?: "cover"
+                val safe = filename.replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(80)
+                val folder = File(app.filesDir, "klangkiste/covers").apply { mkdirs() }
+                val file = File.createTempFile("edited_", "_$safe", folder)
+                newFile = file
+                val source = resolver.openInputStream(cover) ?: error("Bilddatei nicht zugänglich")
+                source.use { input -> file.outputStream().use { output ->
+                    val buffer = ByteArray(65536)
+                    var total = 0L
+                    while (true) {
+                        ensureActive()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        if (total > 16L * 1024 * 1024) error("Das Cover darf höchstens 16 MB groß sein")
+                        output.write(buffer, 0, count)
+                    }
+                } }
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.path, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("Das Bildformat wird nicht unterstützt")
+                filename
+            }
+            val newUri = newFile?.let { Uri.fromFile(it).toString() }
+            ensureActive()
+            withContext(NonCancellable) {
+                db.withTransaction {
+                    val latest = db.trackDao().get(edited.id) ?: error("Eintrag nicht gefunden")
+                    db.trackDao().upsert(latest.copy(title = edited.title, description = edited.description,
+                        ageRecommendation = edited.ageRecommendation, genre = edited.genre,
+                        coverUri = if (remove) null else newUri ?: latest.coverUri,
+                        coverFileName = if (remove) null else name ?: latest.coverFileName))
+                }
+                committed = true
+            }
+            message("Änderungen gespeichert.")
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { message("Speichern fehlgeschlagen: ${e.localizedMessage}") }
+        finally { if (!committed) withContext(NonCancellable + Dispatchers.IO) { newFile?.delete() } }
+    }
+
+    fun download(id: String, message: (String) -> Unit) = viewModelScope.launch {
+        if (id in _active.value) return@launch
+        _active.value = _active.value + id
+        var target: File? = null
+        var linked = false
+        try {
+            val track = db.trackDao().get(id) ?: error("Eintrag nicht gefunden")
+            if (db.audioPartDao().getForTrack(id).isNotEmpty()) return@launch
+            val url = track.remoteAudioUrl?.takeIf { it.startsWith("https://") } ?: error("Kein HTTPS-Audiolink vorhanden")
+            val expected = runCatching { JSONArray(track.expectedAudioNamesJson).optString(0) }.getOrDefault("")
+            val name = expected.ifBlank { Uri.parse(url).lastPathSegment.orEmpty().ifBlank { "audio.mp3" } }
+            val suffix = "_" + name.replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(90)
+            withContext(Dispatchers.IO) {
+                val dir = File(app.filesDir, "klangkiste/audio").apply { mkdirs() }
+                val file = File.createTempFile("download_", suffix, dir)
+                target = file
+                val conn = URL(url).openConnection() as HttpURLConnection
+                conn.connectTimeout = 15000; conn.readTimeout = 30000
+                try {
+                    val status = conn.responseCode
+                    if (status !in 200..299 || conn.url.protocol != "https") error("Unerwartete HTTP-Antwort: $status")
+                    val type = conn.contentType.orEmpty().substringBefore(';').trim().lowercase()
+                    if (type.startsWith("text/") || type == "application/json" || type == "application/xhtml+xml") error("Der Link liefert keine Audiodatei")
+                    conn.inputStream.use { input -> file.outputStream().use { output ->
+                        val buffer = ByteArray(65536)
+                        while (true) { ensureActive(); val count = input.read(buffer); if (count < 0) break; output.write(buffer, 0, count) }
+                    } }
+                    val length = conn.getHeaderField("Content-Length")?.toLongOrNull()
+                    if (file.length() == 0L || (length != null && file.length() != length)) error("Download unvollständig")
+                } finally { conn.disconnect() }
+            }
+            val part = AudioPartEntity(trackId = id, position = 0, uriString = Uri.fromFile(checkNotNull(target)).toString(), displayName = name, managedCopy = true)
+            ensureActive()
+            withContext(NonCancellable) {
+                linked = db.withTransaction {
+                    if (db.trackDao().get(id)?.remoteAudioUrl != url || db.audioPartDao().getForTrack(id).isNotEmpty()) false
+                    else { db.audioPartDao().upsertAll(listOf(part)); true }
+                }
+            }
+            message(if (linked) "„${track.title}“ ist jetzt offline verfügbar." else "Eintrag wurde geändert; Audio nicht hinzugefügt.")
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { message("Audio-Download fehlgeschlagen: ${e.localizedMessage ?: "Unbekannter Fehler"}") }
+        finally {
+            if (!linked) withContext(NonCancellable + Dispatchers.IO) { target?.delete() }
+            _active.value = _active.value - id
         }
     }
 }
