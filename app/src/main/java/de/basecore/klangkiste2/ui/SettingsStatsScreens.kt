@@ -1,5 +1,6 @@
 package de.basecore.klangkiste2.ui
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -19,27 +20,59 @@ import de.basecore.klangkiste2.data.TrackWithAudio
 import java.text.DateFormat
 import java.util.Date
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,onPinApp:()->Unit){
- val context=LocalContext.current;val tts by vm.ttsAvailable.collectAsState()
- val bgPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null){runCatching{context.contentResolver.takePersistableUriPermission(uri,android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)};vm.updateSettings{it.copy(backgroundMode="image",backgroundUri=uri.toString())}}}
- LazyColumn(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
+internal fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,onPinApp:()->Unit,mode:DisplayMode,onMode:(DisplayMode)->Unit){
+ val context=LocalContext.current
+ val tts by vm.ttsAvailable.collectAsState()
+ val remaining by vm.sleepSeconds.collectAsState()
+ val playing by vm.isPlaying.collectAsState()
+ val bgPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null){runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)};vm.updateSettings{it.copy(backgroundMode="image",backgroundUri=uri.toString())}}}
+ val timers=listOf(0.0 to "Aus",0.5 to "30 Sek.",10.0 to "10 Min.",20.0 to "20 Min.",30.0 to "30 Min.",60.0 to "1 Std.")
+ LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
   item{Text("Einstellungen",fontSize=23.sp)}
   item{Text("Maximale Lautstärke: ${(settings.maxVolume*100).toInt()}%")}
   item{Slider(settings.maxVolume,{v->vm.updateSettings{it.copy(maxVolume=v.coerceIn(0f,1f))}})}
   item{Button(onClick=vm::playTestTone){Text("Testton (Lautstärkebegrenzung)")}}
-  item{Text("Schlaf-Timer")}
-  item{Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){listOf(0.0,0.5,10.0).forEach{m->Button(onClick={vm.setSleepTimer(m)}){Text(if(m==0.0)"Aus" else if(m==0.5)"30 Sek." else "${m.toInt()} Min.")}}}}
-  item{Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){listOf(20.0,30.0,60.0).forEach{m->Button(onClick={vm.setSleepTimer(m)}){Text(if(m==60.0)"1 Std." else "${m.toInt()} Min.")}}}}
-  item{SettingSwitch("Beim Start direkt in den Kindermodus",settings.startMode=="kids"){v->vm.setStartInKids(v)}}
-  item{SettingSwitch("Bibliothek im Kindermodus",settings.libraryEnabled){v->vm.updateSettings{old->old.copy(libraryEnabled=v)}}}
-  item{SettingSwitch("Display während der Wiedergabe anlassen",settings.keepScreenOn){v->vm.updateSettings{old->old.copy(keepScreenOn=v)}}}
-  item{SettingSwitch("Face-down-Energiespar-Overlay",settings.ecoMode){v->vm.updateSettings{old->old.copy(ecoMode=v)}}}
-  item{SettingSwitch("Bunte Kindersteuerung",settings.colorfulControls){v->vm.updateSettings{old->old.copy(colorfulControls=v)}}}
-  item{Text("Globaler Altersfilter: ${if(settings.maxAge>=99)"Alle" else "bis ${settings.maxAge} Jahre"}")}
-  item{Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){Button(onClick={vm.updateSettings{it.copy(maxAge=99)}}){Text("Alle")};Button(onClick={vm.updateSettings{it.copy(maxAge=0)}}){Text("0 / unbekannt")};Button(onClick={vm.updateSettings{it.copy(maxAge=4)}}){Text("Bis 4")};Button(onClick={vm.updateSettings{it.copy(maxAge=12)}}){Text("Bis 12")}}}
-  item{Text("Kindermodus-Hintergrund")}
-  item{Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){Button(onClick={vm.updateSettings{it.copy(backgroundMode="default",backgroundUri=null)}}){Text("KlangKiste-Original")};Button(onClick={vm.updateSettings{it.copy(backgroundMode="color")}}){Text("Farbe")};Button(onClick={bgPicker.launch(arrayOf("image/*"))}){Text("Bild wählen")}}}
+  item{
+   Text("Schlaf-Timer")
+   FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+    timers.forEach{(minutes,label)->Selection(label,settings.sleepTimerMinutes==minutes){vm.setSleepTimer(minutes)}}
+   }
+   val status=when{
+    settings.sleepTimerMinutes<=0.0->"Timer ausgeschaltet"
+    remaining>0->if(playing)"Verbleibend: %d:%02d".format(remaining/60,remaining%60) else "Pausiert bei %d:%02d".format(remaining/60,remaining%60)
+    else->"Startet mit der Wiedergabe"
+   }
+   Text(status,style=MaterialTheme.typography.bodySmall)
+  }
+  item{SettingSwitch("Beim Start direkt in den Kindermodus",settings.startMode=="kids",vm::setStartInKids)}
+  item{SettingSwitch("Bibliothek im Kindermodus",settings.libraryEnabled){v->vm.updateSettings{it.copy(libraryEnabled=v)}}}
+  item{
+   Text("Display anlassen")
+   FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+    DisplayMode.entries.forEach{option->Selection(option.label,mode==option){onMode(option)}}
+   }
+   Text("Bei Wiedergabe gilt im Kindermodus. Immer an gilt auch bei Pause und im Elternbereich, solange KlangKiste im Vordergrund ist.",style=MaterialTheme.typography.bodySmall)
+  }
+  item{SettingSwitch("Face-down-Energiespar-Overlay",settings.ecoMode){v->vm.updateSettings{it.copy(ecoMode=v)}}}
+  item{SettingSwitch("Bunte Kindersteuerung",settings.colorfulControls){v->vm.updateSettings{it.copy(colorfulControls=v)}}}
+  item{
+   Text("Globaler Altersfilter: ${if(settings.maxAge>=99)"Alle" else "bis ${settings.maxAge} Jahre"}")
+   FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+    listOf(99 to "Alle",0 to "0 / unbekannt",4 to "Bis 4",12 to "Bis 12").forEach{(age,label)->
+     Selection(label,if(age==99)settings.maxAge>=99 else settings.maxAge==age){vm.updateSettings{it.copy(maxAge=age)}}
+    }
+   }
+  }
+  item{
+   Text("Kindermodus-Hintergrund")
+   FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+    Selection("KlangKiste-Original",settings.backgroundMode=="default"){vm.updateSettings{it.copy(backgroundMode="default",backgroundUri=null)}}
+    Selection("Farbe",settings.backgroundMode=="color"){vm.updateSettings{it.copy(backgroundMode="color")}}
+    Selection("Bild wählen",settings.backgroundMode=="image"){bgPicker.launch(arrayOf("image/*"))}
+   }
+  }
   item{OutlinedTextField(value=settings.backgroundColor,onValueChange={v->vm.updateSettings{it.copy(backgroundColor=v)}},label={Text("Hintergrundfarbe, z. B. #FFFFFF")},singleLine=true)}
   item{SettingSwitch("Medien in App-Speicher kopieren",settings.storageMode=="copy"){v->vm.updateSettings{it.copy(storageMode=if(v)"copy" else "reference")}}}
   item{Text(if(tts)"Deutsche TTS-Stimme verfügbar." else "Keine deutsche Stimme bestätigt.")}
@@ -50,6 +83,9 @@ fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,onPinApp:()
  }
 }
 
+@Composable private fun Selection(label:String,selected:Boolean,onClick:()->Unit){
+ FilterChip(selected,onClick,{Text(if(selected)"✓ $label" else label)},colors=FilterChipDefaults.filterChipColors(selectedContainerColor=MaterialTheme.colorScheme.primary,selectedLabelColor=MaterialTheme.colorScheme.onPrimary))
+}
 @Composable private fun SettingSwitch(title:String,checked:Boolean,onChanged:(Boolean)->Unit){Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween){Text(title,Modifier.weight(1f));Switch(checked,onChanged)}}
 
 @Composable
