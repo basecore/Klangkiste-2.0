@@ -3,24 +3,15 @@ package de.basecore.klangkiste2.ui
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
 import android.net.Uri
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -54,34 +45,46 @@ fun PlayerScreen(vm:KlangKisteViewModel,active:TrackWithAudio?,settings:AppSetti
     else->Image(painterResource(R.drawable.kids_background),null,Modifier.fillMaxSize(),contentScale=ContentScale.Crop)
    }
   }
-  Column(Modifier.fillMaxSize().padding(horizontal=20.dp,vertical=if(childMode)22.dp else 12.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.SpaceEvenly){
-   Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
-    Text(if(childMode)"Meine KlangKiste" else "Player",color=Color.White,fontSize=22.sp,fontWeight=FontWeight.Bold)
-    if(childMode&&settings.libraryEnabled)IconButton(onClick=onOpenLibrary){Icon(Icons.Default.LibraryMusic,"Bibliothek",tint=Color.White)}
-    if(!childMode&&sleepSeconds>0)Text("🌙 ${sleepSeconds/60}:${(sleepSeconds%60).toString().padStart(2,'0')}",color=Color.White)
+  BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.displayCutout).padding(horizontal=16.dp)){
+   val viewport=maxHeight
+   val coverSize=minOf(maxWidth*(if(childMode)0.58f else 0.42f),viewport*0.42f)
+   val gap=6.dp
+   val scale=((maxWidth-gap*4).value/312f).coerceIn(0f,1f)
+   Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min=viewport)
+    .padding(top=if(childMode)26.dp else 12.dp,bottom=if(childMode)32.dp else 12.dp),
+    horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.SpaceBetween){
+    Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(12.dp)){
+     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween,verticalAlignment=Alignment.CenterVertically){
+      Text(if(childMode)"Meine KlangKiste" else "Player",color=Color.White,fontSize=22.sp,fontWeight=FontWeight.Bold)
+      if(childMode&&settings.libraryEnabled)IconButton(onClick=onOpenLibrary){Icon(Icons.Default.LibraryMusic,"Bibliothek",tint=Color.White)}
+      if(!childMode&&sleepSeconds>0)Text("Timer ${formatTime(sleepSeconds*1000L)}",color=Color.White)
+     }
+     CoverArt(active?.track?.coverUri,Modifier.size(coverSize),active?.track?.title?:"Cover")
+     Column(horizontalAlignment=Alignment.CenterHorizontally){
+      Text(active?.track?.title?:"Bereit zum Spielen!",color=Color.White,fontSize=if(childMode)24.sp else 21.sp,fontWeight=FontWeight.ExtraBold,textAlign=TextAlign.Center,maxLines=2)
+      active?.track?.let{val meta=listOfNotNull(it.genre,it.ageRecommendation?.let{"Ab $it J."},it.runtimeMinutes?.let{"$it min"}).joinToString(" • ");if(meta.isNotBlank())Text(meta,color=Color(0xFFEAF6F7),fontSize=13.sp)}
+     }
+    }
+    Column(Modifier.fillMaxWidth().padding(top=16.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(if(childMode)12.dp else 6.dp)){
+     Column(Modifier.fillMaxWidth()){
+      Slider(value=if(duration>0)pos.coerceAtMost(duration).toFloat() else 0f,onValueChange={vm.seekTo(it.toLong())},valueRange=0f..duration.coerceAtLeast(1).toFloat())
+      Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(formatTime(pos),color=Color.White);Text("-${formatTime((duration-pos).coerceAtLeast(0))}",color=Color.White)}
+     }
+     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){
+      IconButton(onClick={vm.adjustVolume(-.1f)}){Icon(Icons.Default.VolumeDown,"Leiser",tint=Color.White)}
+      Slider(value=volume,onValueChange={vm.adjustVolume(it-volume)},modifier=Modifier.weight(1f))
+      IconButton(onClick={vm.adjustVolume(0.1f)}){Icon(Icons.Default.VolumeUp,"Lauter",tint=Color.White)}
+     }
+     Row(horizontalArrangement=Arrangement.spacedBy(gap),verticalAlignment=Alignment.CenterVertically){
+      FilledIconButton(onClick=vm::restartPlaylist,modifier=Modifier.size((54*scale).dp),shape=CircleShape){Icon(Icons.Default.Replay,"Von vorn")}
+      FilledIconButton(onClick=vm::skipBack,modifier=Modifier.size((58*scale).dp),shape=CircleShape){Icon(Icons.Default.Replay,"30 Sekunden zurück")}
+      FilledIconButton(onClick=vm::togglePlay,modifier=Modifier.size(((if(childMode)88 else 72)*scale).dp),shape=CircleShape){Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,if(playing)"Pause" else "Wiedergabe",Modifier.size((46*scale).dp))}
+      FilledIconButton(onClick=vm::skipForward,modifier=Modifier.size((58*scale).dp),shape=CircleShape){Icon(Icons.Default.FastForward,"30 Sekunden vor")}
+      FilledIconButton(onClick=vm::nextFileOrCue,modifier=Modifier.size((54*scale).dp),shape=CircleShape){Icon(Icons.Default.SkipNext,"Nächstes Kapitel/Datei")}
+     }
+     if(!childMode)Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick=onOpenLibrary){Text("Bibliothek")};Button(onClick={vm.speakTitle(active?.track?.title?:"KlangKiste")}){Text("Titel ansagen")}}
+    }
    }
-   CoverArt(active?.track?.coverUri,Modifier.fillMaxWidth(if(childMode) 0.58f else 0.42f).aspectRatio(1f),active?.track?.title?:"Cover")
-   Column(horizontalAlignment=Alignment.CenterHorizontally){
-    Text(active?.track?.title?:"Bereit zum Spielen!",color=Color.White,fontSize=if(childMode)24.sp else 21.sp,fontWeight=FontWeight.ExtraBold,textAlign=TextAlign.Center,maxLines=2)
-    active?.track?.let{val meta=listOfNotNull(it.genre,it.ageRecommendation?.let{"Ab $it J."},it.runtimeMinutes?.let{"$it min"}).joinToString(" • ");if(meta.isNotBlank())Text(meta,color=Color(0xFFEAF6F7),fontSize=13.sp)}
-   }
-   Column(Modifier.fillMaxWidth()){
-    Slider(value=if(duration>0)pos.coerceAtMost(duration).toFloat() else 0f,onValueChange={vm.seekTo(it.toLong())},valueRange=0f..duration.coerceAtLeast(1).toFloat())
-    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){Text(formatTime(pos),color=Color.White);Text("-${formatTime((duration-pos).coerceAtLeast(0))}",color=Color.White)}
-   }
-   Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center){
-    IconButton(onClick={vm.adjustVolume(-.1f)}){Icon(Icons.Default.VolumeDown,"Leiser",tint=Color.White)}
-    Slider(value=volume,onValueChange={vm.adjustVolume(it-volume)},modifier=Modifier.fillMaxWidth(0.65f))
-    IconButton(onClick={vm.adjustVolume(0.1f)}){Icon(Icons.Default.VolumeUp,"Lauter",tint=Color.White)}
-   }
-   Row(horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically){
-    FilledIconButton(onClick=vm::restartPlaylist,modifier=Modifier.size(54.dp),shape=CircleShape){Icon(Icons.Default.Replay,"Von vorn")}
-    FilledIconButton(onClick=vm::skipBack,modifier=Modifier.size(58.dp),shape=CircleShape){Icon(Icons.Default.Replay,"30 Sekunden zurück")}
-    FilledIconButton(onClick=vm::togglePlay,modifier=Modifier.size(if(childMode)88.dp else 72.dp),shape=CircleShape){Icon(if(playing)Icons.Default.Pause else Icons.Default.PlayArrow,if(playing)"Pause" else "Wiedergabe",Modifier.size(46.dp))}
-    FilledIconButton(onClick=vm::skipForward,modifier=Modifier.size(58.dp),shape=CircleShape){Icon(Icons.Default.FastForward,"30 Sekunden vor")}
-    FilledIconButton(onClick=vm::nextFileOrCue,modifier=Modifier.size(54.dp),shape=CircleShape){Icon(Icons.Default.SkipNext,"Nächstes Kapitel/Datei")}
-   }
-   if(!childMode)Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){Button(onClick=onOpenLibrary){Text("Bibliothek")};Button(onClick={vm.speakTitle(active?.track?.title?:"KlangKiste")}){Text("Titel ansagen")}}
   }
  }
 }
