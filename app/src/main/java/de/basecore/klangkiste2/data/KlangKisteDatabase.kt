@@ -44,7 +44,7 @@ data class TrackEntity(
 
 @Entity(
     tableName = "audio_parts",
-    indices = [Index(value = ["trackId", "position"], unique = true)],
+    indices = [Index(value = ["trackId", "position"], unique = true), Index(value = ["trackId"])],
     foreignKeys = [ForeignKey(entity = TrackEntity::class, parentColumns = ["id"], childColumns = ["trackId"], onDelete = ForeignKey.CASCADE)]
 )
 data class AudioPartEntity(

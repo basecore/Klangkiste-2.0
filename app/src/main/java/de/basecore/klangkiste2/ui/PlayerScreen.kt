@@ -63,7 +63,7 @@ fun PlayerScreen(vm:KlangKisteViewModel,active:TrackWithAudio?,settings:AppSetti
    CoverArt(active?.track?.coverUri,Modifier.fillMaxWidth(if(childMode) 0.58f else 0.42f).aspectRatio(1f),active?.track?.title?:"Cover")
    Column(horizontalAlignment=Alignment.CenterHorizontally){
     Text(active?.track?.title?:"Bereit zum Spielen!",color=Color.White,fontSize=if(childMode)24.sp else 21.sp,fontWeight=FontWeight.ExtraBold,textAlign=TextAlign.Center,maxLines=2)
-    active?.track?.let{val meta=listOfNotNull(it.track.genre,it.track.ageRecommendation?.let{"Ab $it J."},it.track.runtimeMinutes?.let{"$it min"}).joinToString(" • ");if(meta.isNotBlank())Text(meta,color=Color(0xFFEAF6F7),fontSize=13.sp)}
+    active?.track?.let{val meta=listOfNotNull(it.genre,it.ageRecommendation?.let{"Ab $it J."},it.runtimeMinutes?.let{"$it min"}).joinToString(" • ");if(meta.isNotBlank())Text(meta,color=Color(0xFFEAF6F7),fontSize=13.sp)}
    }
    Column(Modifier.fillMaxWidth()){
     Slider(value=if(duration>0)pos.coerceAtMost(duration).toFloat() else 0f,onValueChange={vm.seekTo(it.toLong())},valueRange=0f..duration.coerceAtLeast(1).toFloat())

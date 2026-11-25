@@ -21,6 +21,7 @@ import de.basecore.klangkiste2.playback.PlaybackService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.util.concurrent.Executor
+import java.util.Locale
 
 class KlangKisteViewModel(application:Application):AndroidViewModel(application){
  private val app=application.applicationContext
@@ -66,11 +67,19 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
  init{
   viewModelScope.launch{val s=db.settingsDao().get();if(s==null)db.settingsDao().upsert(AppSettingsEntity())else _isChildMode.value=s.startMode=="kids"}
   connectController()
-  tts=TextToSpeech(app){status->
-   val engine=tts
-   val voice=engine?.voices?.firstOrNull{it.locale.language.equals("de",true)&&!it.isNetworkConnectionRequired}?:engine?.voices?.firstOrNull{it.locale.language.equals("de",true)}
-   if(status==TextToSpeech.SUCCESS&&voice!=null){engine.language=voice.locale;engine.voice=voice;_ttsAvailable.value=true;ttsStatus="Deutsche Stimme: ${voice.name}"}
-   else{_ttsAvailable.value=false;ttsStatus="Keine deutsche TTS-Stimme verfügbar. Eine englische Stimme wird nicht für deutschen Text verwendet."}
+  tts = TextToSpeech(app) { status ->
+   val engine = tts
+   val germanVoice = engine?.voices?.firstOrNull { it.locale.language.equals("de", true) && !it.isNetworkConnectionRequired }
+       ?: engine?.voices?.firstOrNull { it.locale.language.equals("de", true) }
+   if (status == TextToSpeech.SUCCESS && engine != null && germanVoice != null) {
+       engine.language = germanVoice.locale
+       engine.voice = germanVoice
+       _ttsAvailable.value = true
+       ttsStatus = "Deutsche Stimme: ${germanVoice.name}"
+   } else {
+       _ttsAvailable.value = false
+       ttsStatus = "Keine deutsche TTS-Stimme verfügbar. Eine englische Stimme wird nicht für deutschen Text verwendet."
+   }
   }
   progressJob=viewModelScope.launch{while(isActive){delay(1000);val c=controller;if(c!=null){_positionMs.value=c.currentPosition.coerceAtLeast(0);_durationMs.value=c.duration.takeIf{it!=C.TIME_UNSET&&it>0}?:0L;if(c.isPlaying&&System.currentTimeMillis()-lastSavedAt>=5000){lastSavedAt=System.currentTimeMillis();persistPosition()}}}}
  }

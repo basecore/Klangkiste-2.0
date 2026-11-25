@@ -25,11 +25,21 @@ import kotlinx.coroutines.withContext
 @Composable
 fun CoverArt(uriString: String?, modifier: Modifier = Modifier, contentDescription: String = "Cover") {
     val context = LocalContext.current
-    val bitmap: ImageBitmap? by produceState(initialValue = null, key1 = uriString) {
+    val imageState = produceState<ImageBitmap?>(initialValue = null, key1 = uriString) {
         value = if (uriString.isNullOrBlank()) null else withContext(Dispatchers.IO) {
-            runCatching { context.contentResolver.openInputStream(Uri.parse(uriString))?.use { BitmapFactory.decodeStream(it)?.asImageBitmap() } }.getOrNull()
+            runCatching {
+                context.contentResolver.openInputStream(Uri.parse(uriString))?.use { stream ->
+                    BitmapFactory.decodeStream(stream)?.asImageBitmap()
+                }
+            }.getOrNull()
         }
     }
-    if (bitmap != null) Image(bitmap = bitmap!!, contentDescription = contentDescription, modifier = modifier.clip(RoundedCornerShape(18.dp)), contentScale = ContentScale.Crop)
-    else Box(modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xFFE8F7F9)), contentAlignment = Alignment.Center) { Text("♫", fontSize = 48.sp, color = Color(0xFF258C8A)) }
+    val bitmap: ImageBitmap? = imageState.value
+    if (bitmap != null) {
+        Image(bitmap = bitmap, contentDescription = contentDescription, modifier = modifier.clip(RoundedCornerShape(18.dp)), contentScale = ContentScale.Crop)
+    } else {
+        Box(modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xFFE8F7F9)), contentAlignment = Alignment.Center) {
+            Text("♫", fontSize = 48.sp, color = Color(0xFF258C8A))
+        }
+    }
 }
