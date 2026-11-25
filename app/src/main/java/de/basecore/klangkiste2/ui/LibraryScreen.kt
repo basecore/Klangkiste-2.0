@@ -5,10 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -23,9 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.basecore.klangkiste2.KlangKisteViewModel
 import de.basecore.klangkiste2.core.ImportFilter
-import de.basecore.klangkiste2.data.AppSettingsEntity
-import de.basecore.klangkiste2.data.TrackEntity
-import de.basecore.klangkiste2.data.TrackWithAudio
+import de.basecore.klangkiste2.data.*
 
 private val LibraryNavy = Color(0xFF2C3E50)
 private val LibraryGreen = Color(0xFF2ECC71)
@@ -34,10 +29,10 @@ internal const val AREA_TAG_PREFIX = "Bereich:"
 
 internal fun TrackEntity.libraryAreas(): List<String> = buildList {
     val tags = tagsCsv.split('|').map { it.trim() }
-    if (title.contains("Bibi Blocksberg", ignoreCase = true) || tags.any { it.equals("Bibi Blocksberg", true) }) add("Bibi Blocksberg")
-    if (tags.any { it.equals("OHRKA", true) } || id.startsWith("ohrka-", ignoreCase = true)) add("OHRKA")
-    tags.filter { it.startsWith(AREA_TAG_PREFIX, ignoreCase = true) }
-        .map { it.substring(AREA_TAG_PREFIX.length).trim() }.filter { it.isNotBlank() }.forEach { add(it) }
+    if (title.contains("Bibi Blocksberg", true) || tags.any { it.equals("Bibi Blocksberg", true) }) add("Bibi Blocksberg")
+    if (tags.any { it.equals("OHRKA", true) } || id.startsWith("ohrka-", true)) add("OHRKA")
+    tags.filter { it.startsWith(AREA_TAG_PREFIX, true) }.map { it.drop(AREA_TAG_PREFIX.length).trim() }
+        .filter { it.isNotBlank() }.forEach { add(it) }
 }.distinctBy { it.lowercase() }
 
 @Composable
@@ -55,25 +50,21 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
     }
     val areasById = remember(available) { available.associate { it.track.id to it.track.libraryAreas() } }
     val areas = remember(areasById) { areasById.values.flatten().distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
-    val selectedArea = areas.firstOrNull { it.equals(area, ignoreCase = true) }
+    val selectedArea = areas.firstOrNull { it.equals(area, true) }
     val genres = remember(available) { available.map { it.track.genre }.filter { it.isNotBlank() }.distinct().sorted() }
     val selectedGenre = genre?.takeIf { it in genres }
     val visible = remember(available, query, selectedGenre, ageLimit, selectedArea, areasById) {
         available.filter { item ->
             val t = item.track
             (selectedArea == null || areasById[t.id].orEmpty().any { it.equals(selectedArea, true) }) &&
-                (selectedGenre == null || selectedGenre == t.genre) &&
-                (t.ageRecommendation == null || t.ageRecommendation <= ageLimit) &&
+                (selectedGenre == null || selectedGenre == t.genre) && (t.ageRecommendation == null || t.ageRecommendation <= ageLimit) &&
                 ImportFilter.matches("${t.title} ${t.description} ${t.genre} ${t.tagsCsv}", t.ageRecommendation, query)
         }.sortedBy { it.track.title.lowercase() }
     }
     val recent = remember(visible, childMode, selectedArea) {
         if (childMode && selectedArea == null) visible.filter { it.track.lastPlayedAt > 0 }.sortedByDescending { it.track.lastPlayedAt }.take(3) else emptyList()
     }
-    fun play(item: TrackWithAudio) {
-        vm.playTrack(item)
-        if (childMode) onBack?.invoke()
-    }
+    fun play(item: TrackWithAudio) { vm.playTrack(item); if (childMode) onBack?.invoke() }
     Box(Modifier.fillMaxSize().background(LibraryNavy)) {
         Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = if (childMode) 44.dp else 14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -85,7 +76,7 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
             if (!childMode) TextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Titel, Beschreibung, Genre oder Tag") })
             if (areas.isNotEmpty()) {
                 SectionLabel("Hörbuchbereiche")
-                LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically_DUMMY) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { LibraryChip("Alle Bereiche", selectedArea == null) { area = null } }
                     items(areas) { label -> LibraryChip(label, selectedArea == label) { area = label } }
                 }
@@ -121,17 +112,13 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
                         }
                     }
                 }
-            } else LazyVerticalGrid(
-                columns = GridCells.Fixed(2), modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = if (childMode && onBack != null) 80.dp else 16.dp)
-            ) {
+            } else LazyVerticalGrid(GridCells.Fixed(2), Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = if (childMode && onBack != null) 80.dp else 16.dp)) {
                 if (recent.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         SectionLabel("Zuletzt gehört")
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(recent, key = { it.track.id }) { item ->
-                                LibraryTile(item.track, Modifier.width(120.dp), { play(item) }, { info = item.track })
-                            }
+                            items(recent, key = { it.track.id }) { item -> LibraryTile(item.track, Modifier.width(120.dp), { play(item) }, { info = item.track }) }
                         }
                     }
                 }
@@ -139,17 +126,18 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
                 items(visible, key = { it.track.id }) { item -> LibraryTile(item.track, Modifier.fillMaxWidth(), { play(item) }, { info = item.track }) }
             }
         }
-        if (childMode && onBack != null) Button(
-            onClick = onBack, modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp).heightIn(min = 48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = LibraryRed, contentoldColor = Color.White)
-        ) { Text("Schließen", fontWeight = FontWeight.Bold) }
-    }\n    info?.let { track ->
-        AlertDialog(onDismissRequest = { info = null }, containerColor = personalColor.White, titleContentColor = LibraryNavy, textContentColor = LibraryNavy,
-            title = { Text(track.title, fontWeight = FontWeight.Bold) },
-            text = {
-                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Center.Horizontal, verticalArrangement = Arrangement.spacedBy(10.dp)) {\n                    CoverArt(trackuri.coverUri, Modifier.size(120.dp), track.title)
+        if (childMode && onBack != null) Button(onClick = onBack,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 16.dp).heightIn(min = 48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = LibraryRed, contentColor = Color.White)) { Text("Schließen", fontWeight = FontWeight.Bold) }
+    }
+    info?.let { track ->
+        AlertDialog(onDismissRequest = { info = null }, containerColor = Color.White, titleContentColor = LibraryNavy, textContentColor = LibraryNavy,
+            title = { Text(track.title, fontWeight = FontWeight.Bold) }, text = {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CoverArt(track.coverUri, Modifier.size(120.dp), track.title)
                     val meta = trackMeta(track)
-                    if (meta.isNotBlank()) Text(meta, fontSize = 13.sp)\n                    LazyColumn(Modifier.fillMaxWidth()..heightIn(max =  170.dp)..background(Color(0xFFF7F9FA), RoundedCornerShape(10.dp))) {
+                    if (meta.isNotBlank()) Text(meta, fontSize = 13.sp)
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 170.dp).background(Color(0xFFF7F9FA), RoundedCornerShape(10.dp))) {
                         item { Text(track.description.ifBlank { "Keine Beschreibung vorhanden." }, Modifier.padding(12.dp)) }
                     }
                 }
@@ -157,18 +145,15 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
     }
 }
 
-@Composable
-private fun LibraryChip(label: String, selected: Boolean, onClick: () -> Unit) {
+@Composable private fun LibraryChip(label: String, selected: Boolean, onClick: () -> Unit) {
     FilterChip(selected = selected, onClick = onClick, label = { Text(label) }, shape = CircleShape,
         colors = FilterChipDefaults.filterChipColors(containerColor = Color.White.copy(alpha = .20f), labelColor = Color.White,
             selectedContainerColor = LibraryGreen, selectedLabelColor = LibraryNavy))
 }
 
-@Composable
-private fun SectionLabel(label: String) { Text(label, color = Color(0xFFDFE6E9), fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+@Composable private fun SectionLabel(label: String) { Text(label, color = Color(0xFFDFE6E9), fontSize = 18.sp, fontWeight = FontWeight.Bold) }
 
-@Composable
-private fun LibraryTile(track: TrackMeta, modifier: Modifier, onPlay: () -> Unit, onInfo: () -> Unit) {
+@Composable private fun LibraryTile(track: TrackEntity, modifier: Modifier, onPlay: () -> Unit, onInfo: () -> Unit) {
     Card(onClick = onPlay, modifier = modifier, shape = RoundedCornerShape(15.dp), elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White, contentColor = LibraryNavy)) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
