@@ -11,13 +11,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out pinned KlangKiste media
+        uses: actions/checkout@v4
+        with:
+          repository: basecore/klangkiste
+          ref: 0254612a8293485f0c63a40bf0b6fd4e51632298
+          path: .original-klangkiste
+          persist-credentials: false
+      - name: Stage original media for the native app
+        shell: bash
+        run: |
+          set -euo pipefail
+          src=.original-klangkiste
+          res=app/src/main/res
+          assets=app/src/main/assets/klangkiste-original
+          install -d "$assets"
+          cp -a "$src/assets" "$assets/assets"
+          cp -a "$src/example" "$assets/example"
+          install -m 0644 "$src/assets/img/hintergrund.jpg" "$res/drawable-nodpi/kids_background.jpg"
+          install -m 0644 "$src/assets/icons/note_sleeping_small.png" "$res/drawable-nodpi/note_sleeping_small.png"
+          install -m 0644 "$src/assets/icons/icon.png" "$res/drawable-nodpi/klangkiste_icon.png"
+          rm -f "$res/drawable-nodpi/background_sleep.webp"
+          install -m 0644 "$src/assets/img/background_sleep.png" "$res/drawable-nodpi/background_sleep.png"
+          install -m 0644 "$src/assets/gutenacht.mp3" "$res/raw/gutenacht.mp3"
+          install -m 0644 "$src/assets/limit.mp3" "$res/raw/limit.mp3"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.10.2"
+          gradle-version: '8.10.2'
       - uses: android-actions/setup-android@v3
         with:
           packages: 'platform-tools'
@@ -25,11 +51,24 @@ jobs:
         run: |
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
-      - name: Make Gradle bootstrap executable
-        run: chmod +x ./gradlew
-
       - name: Build debug APK
         run: bash ./gradlew --no-daemon :app:assembleDebug
+      - name: Verify packaged original media
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          root = Path('.original-klangkiste')
+          apk = Path('app/build/outputs/apk/debug/app-debug.apk')
+          with ZipFile(apk) as archive:
+              for folder in ('assets', 'example'):
+                  for file in sorted((root / folder).rglob('*')):
+                      if file.is_file():
+                          entry = 'assets/klangkiste-original/' + file.relative_to(root).as_posix()
+                          if archive.read(entry) != file.read_bytes():
+                              raise SystemExit(f'Packaged media differs: {entry}')
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: KlangKiste-2.0-debug-apk
