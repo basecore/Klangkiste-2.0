@@ -28,6 +28,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import de.basecore.klangkiste2.KlangKisteViewModel
 
 private enum class ParentPage { ADMIN, SETTINGS, STATS, PREVIEW, LIBRARY }
+internal enum class DisplayMode(val label: String) {
+    SYSTEM("Android-Timeout"), PLAYBACK("Bei Wiedergabe"), ALWAYS("Immer an")
+}
 private val ParentBackground = Color(0xFF2D3436)
 private val ParentGreen = Color(0xFF2ECC71)
 private val ParentBlue = Color(0xFF74B9FF)
@@ -52,19 +55,29 @@ fun KlangKisteApp(viewModel: KlangKisteViewModel, onPinApp: () -> Unit) {
     val snack = remember { SnackbarHostState() }
     var page by rememberSaveable { mutableStateOf(ParentPage.ADMIN) }
     val immersive = child || sleep
+    val prefs = remember(context) { context.getSharedPreferences("display_settings", Context.MODE_PRIVATE) }
+    var storedMode by remember(prefs) {
+        mutableStateOf(DisplayMode.entries.firstOrNull { it.name == prefs.getString("mode", null) })
+    }
+    val mode = storedMode ?: if (settings.keepScreenOn) DisplayMode.PLAYBACK else DisplayMode.SYSTEM
+    val window = context.findActivity()?.window
+    val keepAwake = mode == DisplayMode.ALWAYS || (mode == DisplayMode.PLAYBACK && child && playing)
+    DisposableEffect(window, keepAwake) {
+        if (keepAwake) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+    }
     LaunchedEffect(message) {
         if (message.isNotBlank()) { snack.showSnackbar(message); viewModel.clearMessage() }
     }
-    LaunchedEffect(immersive, child, playing, settings.keepScreenOn) {
-        val window = context.findActivity()?.window ?: return@LaunchedEffect
-        val controller = WindowInsetsControllerCompat(window, window.decorView)
-        WindowCompat.setDecorFitsSystemWindows(window, !immersive)
+    LaunchedEffect(window, immersive) {
+        val activeWindow = window ?: return@LaunchedEffect
+        val controller = WindowInsetsControllerCompat(activeWindow, activeWindow.decorView)
+        WindowCompat.setDecorFitsSystemWindows(activeWindow, !immersive)
         if (immersive) {
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             controller.hide(WindowInsetsCompat.Type.systemBars())
         } else controller.show(WindowInsetsCompat.Type.systemBars())
-        if (child && playing && settings.keepScreenOn) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
     BackHandler(enabled = immersive || page != ParentPage.ADMIN) {
         if (!immersive) page = ParentPage.ADMIN
@@ -93,7 +106,10 @@ fun KlangKisteApp(viewModel: KlangKisteViewModel, onPinApp: () -> Unit) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when (page) {
                                 ParentPage.ADMIN -> AdminScreen(viewModel, tracks, onPinApp)
-                                ParentPage.SETTINGS -> SettingsScreen(viewModel, settings, onPinApp)
+                                ParentPage.SETTINGS -> SettingsScreen(viewModel, settings, onPinApp, mode) {
+                                    storedMode = it
+                                    prefs.edit().putString("mode", it.name).apply()
+                                }
                                 ParentPage.STATS -> StatsScreen(viewModel, tracks)
                                 ParentPage.PREVIEW -> PlayerScreen(viewModel, active, settings, false) { page = ParentPage.LIBRARY }
                                 ParentPage.LIBRARY -> LibraryScreen(viewModel, tracks, settings, false, null)
