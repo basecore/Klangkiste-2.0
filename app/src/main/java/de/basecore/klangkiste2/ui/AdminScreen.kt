@@ -1,6 +1,6 @@
 package de.basecore.klangkiste2.ui
 
-import android.content.Intent
+import android.app.Application
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,21 +14,30 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.room.withTransaction
 import de.basecore.klangkiste2.KlangKisteViewModel
 import de.basecore.klangkiste2.core.ImportFilter
-import de.basecore.klangkiste2.data.ImportCandidate
-import de.basecore.klangkiste2.data.TrackEntity
-import de.basecore.klangkiste2.data.TrackWithAudio
+import de.basecore.klangkiste2.data.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 @Composable
 fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp: () -> Unit) {
     val candidates by vm.candidates.collectAsState()
     val settings by vm.settings.collectAsState()
-    val context = LocalContext.current
+    val downloader: OfflineAudioViewModel = viewModel()
+    val downloading by downloader.active.collectAsState()
     val smart = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let { uri -> vm.scanFolder(uri, true) } }
     val flat = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let { uri -> vm.scanFolder(uri, false) } }
     val repair = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { it?.let { uri -> vm.relinkFolder(uri, settings.storageMode == "copy") } }
@@ -52,8 +61,10 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                 Text("Elternbereich", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF74B9FF))
                 OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Hörspiele suchen") })
                 AdminSection("Inhalte hinzufügen", section == "import", { section = if (section == "import") "" else "import" }) {
-                    AdminAction("Ordnerstruktur importieren") { smart.launch(null) }
-                    AdminAction("Flachen Ordner importieren") { flat.launch(null) }
+                    AdminAction("Kapitel je Unterordner bündeln") { smart.launch(null) }
+                    ImportHint("Grüffelo/01.mp3 und Grüffelo/02.mp3 ergeben zusammen das Hörspiel „Grüffelo“. Dateien direkt im ausgewählten Ordner bleiben einzelne Titel.")
+                    AdminAction("Titel nach Dateiname importieren") { flat.launch(null) }
+                    ImportHint("Grüffelo.mp3 und Pettersson.mp3 ergeben zwei Titel, auch im selben Ordner. Gleiche Grundnamen im selben Ordner werden gebündelt. Beide Varianten durchsuchen Unterordner.")
                     AdminAction("Dateien auswählen") { loose.launch(arrayOf("audio/*", "image/*", "application/json", "text/plain")) }
                     AdminAction("OHRKA installieren", vm::installOhrkaCatalog)
                     AdminAction("Online-Beispiele laden", vm::loadOnlineExamples)
@@ -83,6 +94,7 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
         }
         items(visible, key = { it.track.id }) { item ->
             val track = item.track
+            val busy = track.id in downloading
             var menu by remember { mutableStateOf(false) }
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF42494C), contentColor = Color.White)) {
                 if (!settings.adminListView) CoverArt(track.coverUri, Modifier.fillMaxWidth().aspectRatio(1f))
@@ -90,7 +102,7 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                     if (settings.adminListView) CoverArt(track.coverUri, Modifier.size(48.dp))
                     Column(Modifier.weight(1f)) {
                         Text(track.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(if (track.hiddenInLibrary) "Ausgeblendet" else "${item.audioParts.size} Datei(en)", style = MaterialTheme.typography.bodySmall)
+                        Text(when { busy -> "Lädt …"; track.hiddenInLibrary -> "Ausgeblendet"; else -> "${item.audioParts.size} Datei(en)" }, style = MaterialTheme.typography.bodySmall)
                     }
                     Box {
                         TextButton(onClick = { menu = true }, contentPadding = PaddingValues(0.dp)) { Text("Menü") }
@@ -99,12 +111,13 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                             DropdownMenuItem(text = { Text("Bearbeiten") }, onClick = { menu = false; editing = track })
                             DropdownMenuItem(text = { Text("NFC-Tag zuordnen") }, onClick = { menu = false; vm.beginNfcPairing(track.id) })
                             DropdownMenuItem(text = { Text(if (track.hiddenInLibrary) "Einblenden" else "Ausblenden") }, onClick = { menu = false; vm.toggleHidden(track) })
-                            val url = track.remoteAudioUrl
-                            if (item.audioParts.isEmpty() && !url.isNullOrBlank()) DropdownMenuItem(text = { Text("Audio herunterladen") }, onClick = {
-                                menu = false
-                                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.onFailure { vm.showMessage("Der Downloadlink konnte nicht geöffnet werden.") }
-                            })
-                            DropdownMenuItem(text = { Text("Löschen") }, onClick = { menu = false; deleting = track })
+                            if (item.audioParts.isEmpty() && !track.remoteAudioUrl.isNullOrBlank()) {
+                                DropdownMenuItem(text = { Text(if (busy) "Audio wird heruntergeladen …" else "Audio herunterladen") }, enabled = !busy, onClick = {
+                                    menu = false
+                                    downloader.download(track.id, vm::showMessage)
+                                })
+                            }
+                            DropdownMenuItem(text = { Text("Löschen") }, enabled = !busy, onClick = { menu = false; deleting = track })
                         }
                     }
                 }
@@ -115,6 +128,10 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
     editing?.let { EditTrack(it, { editing = null }) { edited -> vm.saveEditedTrack(edited); editing = null } }
     deleting?.let { DeleteConfirmation("Hörspiel löschen?", it.title, { deleting = null }) { vm.deleteTrack(it); deleting = null } }
     if (clear) DeleteConfirmation("Datenbank leeren?", "Tracks, NFC-Zuordnungen und Verlauf werden gelöscht.", { clear = false }) { vm.clearAll(); clear = false }
+}
+
+@Composable private fun ImportHint(text: String) {
+    Text(text, Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable private fun AdminSection(title: String, open: Boolean, toggle: () -> Unit, content: @Composable () -> Unit) {
@@ -191,4 +208,66 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
 @Composable private fun DeleteConfirmation(title: String, description: String, close: () -> Unit, delete: () -> Unit) {
     AlertDialog(onDismissRequest = close, title = { Text(title) }, text = { Text(description) },
         confirmButton = { TextButton(onClick = delete) { Text("Löschen") } }, dismissButton = { TextButton(onClick = close) { Text("Abbrechen") } })
+}
+
+internal class OfflineAudioViewModel(private val app: Application) : AndroidViewModel(app) {
+    private val db = KlangKisteDatabase.get(app)
+    private val _active = MutableStateFlow<Set<String>>(emptySet())
+    val active = _active.asStateFlow()
+
+    fun download(id: String, message: (String) -> Unit) {
+        viewModelScope.launch {
+            if (id in _active.value) return@launch
+            _active.value = _active.value + id
+            var target: File? = null
+            var linked = false
+            try {
+                val track = db.trackDao().get(id) ?: error("Eintrag nicht gefunden")
+                if (db.audioPartDao().getForTrack(id).isNotEmpty()) return@launch
+                val url = track.remoteAudioUrl?.takeIf { it.startsWith("https://") } ?: error("Kein HTTPS-Audiolink vorhanden")
+                val expected = runCatching { JSONArray(track.expectedAudioNamesJson).optString(0) }.getOrDefault("")
+                val name = expected.ifBlank { Uri.parse(url).lastPathSegment.orEmpty().ifBlank { "audio.mp3" } }
+                val suffix = "_" + name.replace(Regex("[^A-Za-z0-9._-]"), "_").takeLast(90)
+                withContext(Dispatchers.IO) {
+                    val dir = File(app.filesDir, "klangkiste/audio").apply { mkdirs() }
+                    val file = File.createTempFile("download_", suffix, dir)
+                    target = file
+                    val conn = URL(url).openConnection() as HttpURLConnection
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 30000
+                    try {
+                        val status = conn.responseCode
+                        if (status !in 200..299 || conn.url.protocol != "https") error("Unerwartete HTTP-Antwort: $status")
+                        val type = conn.contentType.orEmpty().substringBefore(';').trim().lowercase()
+                        if (type.startsWith("text/") || type == "application/json" || type == "application/xhtml+xml") error("Der Link liefert keine Audiodatei")
+                        conn.inputStream.use { input -> file.outputStream().use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                ensureActive()
+                                val bytes = input.read(buffer)
+                                if (bytes < 0) break
+                                output.write(buffer, 0, bytes)
+                            }
+                        } }
+                        val length = conn.getHeaderField("Content-Length")?.toLongOrNull()
+                        if (file.length() == 0L || (length != null && file.length() != length)) error("Download unvollständig")
+                    } finally { conn.disconnect() }
+                }
+                val part = AudioPartEntity(trackId = id, position = 0, uriString = Uri.fromFile(checkNotNull(target)).toString(), displayName = name, managedCopy = true)
+                ensureActive()
+                withContext(NonCancellable) {
+                    linked = db.withTransaction {
+                        if (db.trackDao().get(id)?.remoteAudioUrl != url || db.audioPartDao().getForTrack(id).isNotEmpty()) false
+                        else { db.audioPartDao().upsertAll(listOf(part)); true }
+                    }
+                }
+                message(if (linked) "„${track.title}“ ist jetzt offline verfügbar." else "Eintrag wurde geändert; Audio nicht hinzugefügt.")
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { message("Audio-Download fehlgeschlagen: ${e.localizedMessage ?: "Unbekannter Fehler"}") }
+            finally {
+                if (!linked) withContext(NonCancellable + Dispatchers.IO) { target?.delete() }
+                _active.value = _active.value - id
+            }
+        }
+    }
 }
