@@ -25,8 +25,11 @@ jobs:
         run: |
           yes | sdkmanager --licenses
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Make Gradle bootstrap executable
+        run: chmod +x ./gradlew
+
       - name: Build debug APK
-        run: ./gradlew --no-daemon :app:assembleDebug
+        run: bash ./gradlew --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
           name: KlangKiste-2.0-debug-apk
