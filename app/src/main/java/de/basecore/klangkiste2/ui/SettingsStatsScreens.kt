@@ -32,6 +32,7 @@ internal fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,on
  val storyLimit by vm.sleepStoryLimit.collectAsState()
  val storiesRemaining by vm.sleepStoriesRemaining.collectAsState()
  val playing by vm.isPlaying.collectAsState()
+ var showRules by rememberSaveable { mutableStateOf(false) }
  var showStoryDialog by rememberSaveable { mutableStateOf(false) }
  var storyInput by rememberSaveable { mutableStateOf("2") }
  if(showStoryDialog){
@@ -48,6 +49,8 @@ internal fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,on
  val timers=listOf(0.0 to "Aus",0.5 to "30 Sek.",10.0 to "10 Min.",20.0 to "20 Min.",30.0 to "30 Min.",60.0 to "1 Std.")
  LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
   item{Text("Einstellungen",fontSize=23.sp)}
+  item{Button(onClick={showRules=!showRules}){Text(if(showRules) "Elternkontrolle ausblenden" else "Elternkontrolle öffnen")}}
+  if(showRules) item(key="listening_rules"){ListeningRules()}
   item{Text("Maximale Lautstärke: ${(settings.maxVolume*100).toInt()}%")}
   item{Slider(settings.maxVolume,{v->vm.updateSettings{it.copy(maxVolume=v.coerceIn(0f,1f))}})}
   item{Button(onClick=vm::playTestTone){Text("Testton (Lautstärkebegrenzung)")}}
@@ -78,6 +81,7 @@ internal fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,on
   item{SettingSwitch("Bunte Kindersteuerung",settings.colorfulControls){v->vm.updateSettings{it.copy(colorfulControls=v)}}}
   item{
    Text("Globaler Altersfilter: ${if(settings.maxAge>=99)"Alle" else "bis ${settings.maxAge} Jahre"}")
+   Text("Titel ohne Altersempfehlung bleiben erlaubt.")
    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
     listOf(99 to "Alle",0 to "0 / unbekannt",4 to "Bis 4",12 to "Bis 12").forEach{(age,label)->
      Selection(label,if(age==99)settings.maxAge>=99 else settings.maxAge==age){vm.updateSettings{it.copy(maxAge=age)}}
