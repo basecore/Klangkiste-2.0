@@ -49,25 +49,37 @@ internal fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,on
  val timers=listOf(0.0 to "Aus",0.5 to "30 Sek.",10.0 to "10 Min.",20.0 to "20 Min.",30.0 to "30 Min.",60.0 to "1 Std.")
  LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
   item{Text("Einstellungen",fontSize=23.sp)}
-  item{Button(onClick={showRules=!showRules}){Text(if(showRules) "Elternkontrolle ausblenden" else "Elternkontrolle öffnen")}}
-  if(showRules) item(key="listening_rules"){ListeningRules()}
+  item{Button(onClick={showRules=!showRules}){Text(if(showRules) "Hörregeln ausblenden" else "Hörregeln öffnen")}}
+  if(showRules){
+   item(key="listening_rules"){ListeningRules()}
+   item(key="listening_rules_sleep_timer"){
+    Text("Schlaf-Timer")
+    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+     timers.forEach{(minutes,label)->Selection(label,storyLimit==0&&settings.sleepTimerMinutes==minutes){vm.setSleepTimer(minutes)}}
+     Selection("Nach Hörspielen",storyLimit>0){storyInput=if(storyLimit>0)storyLimit.toString() else "2";showStoryDialog=true}
+    }
+    val status=when{
+     storyLimit>0->when(storiesRemaining){0->"Schlafenszeit";1->"Noch 1 Hörspiel";else->"Noch $storiesRemaining Hörspiele"}
+     settings.sleepTimerMinutes<=0.0->"Timer ausgeschaltet"
+     remaining>0->if(playing)"Verbleibend: %d:%02d".format(remaining/60,remaining%60) else "Pausiert bei %d:%02d".format(remaining/60,remaining%60)
+     else->"Startet mit der Wiedergabe"
+    }
+    Text(status,style=MaterialTheme.typography.bodySmall)
+   }
+   item(key="listening_rules_age_filter"){
+    Text("Altersfilter: ${if(settings.maxAge>=99)"Alle" else "bis ${settings.maxAge} Jahre"}")
+    Text("Gilt für alle Hörspiele.")
+    Text("Titel ohne Altersempfehlung bleiben erlaubt.")
+    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+     listOf(99 to "Alle",0 to "0 / unbekannt",4 to "Bis 4",12 to "Bis 12").forEach{(age,label)->
+      Selection(label,if(age==99)settings.maxAge>=99 else settings.maxAge==age){vm.updateSettings{it.copy(maxAge=age)}}
+     }
+    }
+   }
+  }
   item{Text("Maximale Lautstärke: ${(settings.maxVolume*100).toInt()}%")}
   item{Slider(settings.maxVolume,{v->vm.updateSettings{it.copy(maxVolume=v.coerceIn(0f,1f))}})}
   item{Button(onClick=vm::playTestTone){Text("Testton (Lautstärkebegrenzung)")}}
-  item{
-   Text("Schlaf-Timer")
-   FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-    timers.forEach{(minutes,label)->Selection(label,storyLimit==0&&settings.sleepTimerMinutes==minutes){vm.setSleepTimer(minutes)}}
-    Selection("Nach Hörspielen",storyLimit>0){storyInput=if(storyLimit>0)storyLimit.toString() else "2";showStoryDialog=true}
-   }
-   val status=when{
-    storyLimit>0->when(storiesRemaining){0->"Schlafenszeit";1->"Noch 1 Hörspiel";else->"Noch $storiesRemaining Hörspiele"}
-    settings.sleepTimerMinutes<=0.0->"Timer ausgeschaltet"
-    remaining>0->if(playing)"Verbleibend: %d:%02d".format(remaining/60,remaining%60) else "Pausiert bei %d:%02d".format(remaining/60,remaining%60)
-    else->"Startet mit der Wiedergabe"
-   }
-   Text(status,style=MaterialTheme.typography.bodySmall)
-  }
   item{SettingSwitch("Beim Start direkt in den Kindermodus",settings.startMode=="kids",vm::setStartInKids)}
   item{SettingSwitch("Bibliothek im Kindermodus",settings.libraryEnabled){v->vm.updateSettings{it.copy(libraryEnabled=v)}}}
   item{
@@ -79,15 +91,6 @@ internal fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,on
   }
   item{SettingSwitch("Face-down-Energiespar-Overlay",settings.ecoMode){v->vm.updateSettings{it.copy(ecoMode=v)}}}
   item{SettingSwitch("Bunte Kindersteuerung",settings.colorfulControls){v->vm.updateSettings{it.copy(colorfulControls=v)}}}
-  item{
-   Text("Globaler Altersfilter: ${if(settings.maxAge>=99)"Alle" else "bis ${settings.maxAge} Jahre"}")
-   Text("Titel ohne Altersempfehlung bleiben erlaubt.")
-   FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-    listOf(99 to "Alle",0 to "0 / unbekannt",4 to "Bis 4",12 to "Bis 12").forEach{(age,label)->
-     Selection(label,if(age==99)settings.maxAge>=99 else settings.maxAge==age){vm.updateSettings{it.copy(maxAge=age)}}
-    }
-   }
-  }
   item{
    Text("Kindermodus-Hintergrund")
    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){

@@ -28,7 +28,7 @@ internal fun ListeningRules() {
     val limit = remember(now.dayOfWeek, revision) { prefs.getInt("limit_${now.dayOfWeek.value}", 0) }
     fun format(ms: Long) = "%d:%02d".format(ms / 60000, ms / 1000 % 60)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Elternkontrolle", style = MaterialTheme.typography.titleLarge)
+        Text("Hörregeln", style = MaterialTheme.typography.titleLarge)
         Text("Heute gehört: ${format(used)}")
         Text(if (limit == 0) "Verbleibend: unbegrenzt" else "Verbleibend: ${format((limit * 60000L - used).coerceAtLeast(0L))}")
         OutlinedTextField(window, { window = it }, label = { Text("Erlaubt: HH:mm-HH:mm") }, singleLine = true)
