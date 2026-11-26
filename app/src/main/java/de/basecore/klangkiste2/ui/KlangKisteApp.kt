@@ -27,7 +27,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import de.basecore.klangkiste2.KlangKisteViewModel
 
-private enum class ParentPage { ADMIN, SETTINGS, STATS, PREVIEW, LIBRARY }
+private enum class ParentPage { ADMIN, SETTINGS, STATS }
 internal enum class DisplayMode(val label: String) {
     SYSTEM("Android-Timeout"), PLAYBACK("Bei Wiedergabe"), ALWAYS("Immer an")
 }
@@ -100,7 +100,6 @@ fun KlangKisteApp(viewModel: KlangKisteViewModel, onPinApp: () -> Unit) {
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp)) {
                                 TextButton(onClick = { page = ParentPage.SETTINGS }) { Text("Einstellungen") }
                                 TextButton(onClick = { page = ParentPage.STATS }) { Text("Statistik") }
-                                TextButton(onClick = { page = ParentPage.PREVIEW }) { Text("Player-Vorschau") }
                             }
                         } else TextButton(onClick = { page = ParentPage.ADMIN }, modifier = Modifier.padding(start = 8.dp)) { Text("Zurück zum Elternbereich") }
                         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -111,8 +110,6 @@ fun KlangKisteApp(viewModel: KlangKisteViewModel, onPinApp: () -> Unit) {
                                     prefs.edit().putString("mode", it.name).apply()
                                 }
                                 ParentPage.STATS -> StatsScreen(viewModel, tracks)
-                                ParentPage.PREVIEW -> PlayerScreen(viewModel, active, settings, false) { page = ParentPage.LIBRARY }
-                                ParentPage.LIBRARY -> LibraryScreen(viewModel, tracks, settings, false, null)
                             }
                         }
                     }

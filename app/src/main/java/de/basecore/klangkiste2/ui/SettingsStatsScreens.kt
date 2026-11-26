@@ -6,11 +6,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import de.basecore.klangkiste2.KlangKisteViewModel
@@ -26,7 +29,21 @@ internal fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,on
  val context=LocalContext.current
  val tts by vm.ttsAvailable.collectAsState()
  val remaining by vm.sleepSeconds.collectAsState()
+ val storyLimit by vm.sleepStoryLimit.collectAsState()
+ val storiesRemaining by vm.sleepStoriesRemaining.collectAsState()
  val playing by vm.isPlaying.collectAsState()
+ var showStoryDialog by rememberSaveable { mutableStateOf(false) }
+ var storyInput by rememberSaveable { mutableStateOf("2") }
+ if(showStoryDialog){
+  val count=storyInput.toIntOrNull()?.takeIf{it in 1..99}
+  AlertDialog(
+   onDismissRequest={showStoryDialog=false},
+   title={Text("Nach Hörspielen")},
+   text={OutlinedTextField(storyInput,{input->storyInput=input.filter{it in '0'..'9'}.take(2)},label={Text("Anzahl (1–99)")},singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))},
+   confirmButton={TextButton(enabled=count!=null,onClick={count?.let(vm::setSleepStoryLimit);showStoryDialog=false}){Text("Übernehmen")}},
+   dismissButton={TextButton(onClick={showStoryDialog=false}){Text("Abbrechen")}}
+  )
+ }
  val bgPicker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){uri->if(uri!=null){runCatching{context.contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)};vm.updateSettings{it.copy(backgroundMode="image",backgroundUri=uri.toString())}}}
  val timers=listOf(0.0 to "Aus",0.5 to "30 Sek.",10.0 to "10 Min.",20.0 to "20 Min.",30.0 to "30 Min.",60.0 to "1 Std.")
  LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
@@ -37,9 +54,11 @@ internal fun SettingsScreen(vm:KlangKisteViewModel,settings:AppSettingsEntity,on
   item{
    Text("Schlaf-Timer")
    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-    timers.forEach{(minutes,label)->Selection(label,settings.sleepTimerMinutes==minutes){vm.setSleepTimer(minutes)}}
+    timers.forEach{(minutes,label)->Selection(label,storyLimit==0&&settings.sleepTimerMinutes==minutes){vm.setSleepTimer(minutes)}}
+    Selection("Nach Hörspielen",storyLimit>0){storyInput=if(storyLimit>0)storyLimit.toString() else "2";showStoryDialog=true}
    }
    val status=when{
+    storyLimit>0->when(storiesRemaining){0->"Schlafenszeit";1->"Noch 1 Hörspiel";else->"Noch $storiesRemaining Hörspiele"}
     settings.sleepTimerMinutes<=0.0->"Timer ausgeschaltet"
     remaining>0->if(playing)"Verbleibend: %d:%02d".format(remaining/60,remaining%60) else "Pausiert bei %d:%02d".format(remaining/60,remaining%60)
     else->"Startet mit der Wiedergabe"
@@ -97,11 +116,11 @@ fun StatsScreen(vm:KlangKisteViewModel,tracks:List<TrackWithAudio>){
  Column(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
   Text("Nutzung & Statistik",fontSize=23.sp)
   Row(horizontalArrangement=Arrangement.spacedBy(5.dp)){listOf("day" to "Heute","week" to "7 Tage","all" to "Gesamt").forEach{(key,label)->FilterChip(scope==key,{scope=key},{Text(label)})}}
-  Card(Modifier.fillMaxWidth()){Column(Modifier.padding(12.dp)){Text("Hördauer: ${formatDuration(duration)}");Text("Ø Session: ${if(sessions.isEmpty())"0m" else formatDuration(duration/sessions.size)}");Text("Vollständig gehört: $complete")}}
+  Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text("Hördauer: ${formatDuration(duration)}");Text("Ø Session: ${if(sessions.isEmpty())"0m" else formatDuration(duration/sessions.size)}");Text("Vollständig gehört: $complete")}}
   Text("Lieblings-Hörspiele");top.forEach{(id,sec)->Text("${names[id]?:"Unbekannt"} · ${formatDuration(sec)}")}
   Text("Timeline · letzte 50 Ereignisse")
   LazyColumn(verticalArrangement=Arrangement.spacedBy(5.dp)){items(filtered.take(50),key={it.id}){TimelineRow(it,names[it.trackId])}}
  }
 }
-@Composable private fun TimelineRow(event:PlaybackEventEntity,title:String?){Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text("${DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(event.timestamp))} · ${event.type}");if(!title.isNullOrBlank())Text(title);if(event.details.isNotBlank())Text(event.details,fontSize=12.sp)}}}
-private fun formatDuration(seconds:Double):String{val total=(seconds/60).toInt().coerceAtLeast(0);val h=total/60;val m=total%60;return if(h>0)"${h}h ${m}m" else "${m}m"}
+@Composable private fun TimelineRow(e:PlaybackEventEntity,title:String?){Card(Modifier.fillMaxWidth()){Column(Modifier.padding(9.dp)){Text("${DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(e.timestamp))} · ${e.type}");if(!title.isNullOrBlank())Text(title);if(e.details.isNotBlank())Text(e.details,fontSize=12.sp)}}}
+private fun formatDuration(seconds:Double):String{val total=(seconds/60).toInt().coerceAtLeast(0);return "${total/60}h ${total%60}m"}

@@ -105,7 +105,7 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                         Text(when { busy -> "Lädt …"; track.hiddenInLibrary -> "Ausgeblendet"; else -> "${item.audioParts.size} Datei(en)" }, style = MaterialTheme.typography.bodySmall)
                     }
                     Box {
-                        TextButton(onClick = { menu = true }, contentPadding = PaddingValues(0.dp)) { Text("Menü") }
+                        TextButton(onClick = { menu = true }, contentPadding = PaddingValues(0.dp)) { Text("Edit") }
                         DropdownMenu(menu, { menu = false }) {
                             DropdownMenuItem(text = { Text("Abspielen") }, enabled = item.audioParts.isNotEmpty(), onClick = { menu = false; vm.playTrack(item) })
                             DropdownMenuItem(text = { Text("Bearbeiten") }, onClick = { menu = false; editing = track })

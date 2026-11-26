@@ -2,6 +2,7 @@ package de.basecore.klangkiste2
 
 import android.app.Application
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
 import android.net.Uri
@@ -40,6 +41,11 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
  private val _sleeping=MutableStateFlow(false);val sleeping=_sleeping.asStateFlow()
  private val _blackout=MutableStateFlow(false);val blackout=_blackout.asStateFlow()
  private val _sleepSeconds=MutableStateFlow(0);val sleepSeconds=_sleepSeconds.asStateFlow()
+ private val sleepPrefs=app.getSharedPreferences("sleep_timer",Context.MODE_PRIVATE)
+ private val _sleepStoryLimit=MutableStateFlow(sleepPrefs.getInt("story_limit",0).coerceIn(0,99))
+ val sleepStoryLimit=_sleepStoryLimit.asStateFlow()
+ private val _sleepStoriesRemaining=MutableStateFlow(_sleepStoryLimit.value)
+ val sleepStoriesRemaining=_sleepStoriesRemaining.asStateFlow()
  private val _faceDown=MutableStateFlow(false);val faceDown=_faceDown.asStateFlow()
  private val _ttsAvailable=MutableStateFlow(false);val ttsAvailable=_ttsAvailable.asStateFlow()
  private var controller:MediaController?=null
@@ -57,12 +63,21 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
   override fun onIsPlayingChanged(playing:Boolean){
    _isPlaying.value=playing
    if(playing){
+    if(_sleeping.value){controller?.pause();return}
     if(sessionStartMs==null){sessionStartMs=System.currentTimeMillis();logAsync("play",_currentTrackId.value,"Wiedergabe gestartet")}
-    if(settings.value.sleepTimerMinutes>0&&sleepJob?.isActive!=true&&_sleepSeconds.value<=0)startSleepTimer(settings.value.sleepTimerMinutes)
+    if(_sleepStoryLimit.value==0&&settings.value.sleepTimerMinutes>0&&sleepJob?.isActive!=true&&_sleepSeconds.value<=0)startSleepTimer(settings.value.sleepTimerMinutes)
    }else finishSession()
   }
   override fun onMediaItemTransition(mediaItem:MediaItem?,reason:Int){mediaItem?.mediaId?.takeIf{it.isNotBlank()}?.let{_currentTrackId.value=it}}
-  override fun onPlaybackStateChanged(state:Int){if(state==Player.STATE_ENDED){val id=_currentTrackId.value?:return;viewModelScope.launch{db.trackDao().get(id)?.let{db.trackDao().upsert(it.copy(completed=true,lastTrackIndex=0,lastPositionMs=0))};log("completed",id,0.0,"Vollständig gehört")}}}
+  override fun onPlaybackStateChanged(state:Int){
+   if(state!=Player.STATE_ENDED)return
+   val id=controller?.currentMediaItem?.mediaId?.takeIf{it.isNotBlank()}?:return
+   viewModelScope.launch{db.trackDao().get(id)?.let{db.trackDao().upsert(it.copy(completed=true,lastTrackIndex=0,lastPositionMs=0))};log("completed",id,0.0,"Vollständig gehört")}
+   if(!_sleeping.value&&_sleepStoriesRemaining.value>0){
+    _sleepStoriesRemaining.value-=1
+    if(_sleepStoriesRemaining.value==0)startSleepView()
+   }
+  }
  }
  init{
   viewModelScope.launch{val s=db.settingsDao().get();if(s==null)db.settingsDao().upsert(AppSettingsEntity())else _isChildMode.value=s.startMode=="kids"}
@@ -96,6 +111,7 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
  fun updateSettings(change:(AppSettingsEntity)->AppSettingsEntity){viewModelScope.launch{val next=change(settings.value);if(!next.ecoMode)_faceDown.value=false;db.settingsDao().upsert(next)}}
  fun playTrack(item:TrackWithAudio){
   viewModelScope.launch{
+   if(_sleeping.value)return@launch
    val parts=item.audioParts.sortedBy{it.position};if(parts.isEmpty()){_message.value="Audio fehlt. Wähle im Elternbereich ‚Dateien verknüpfen‘.";return@launch}
    val c=controller?:run{_message.value="Player wird verbunden. Bitte kurz warten.";return@launch}
    val meta=MediaMetadata.Builder().setTitle(item.track.title).setArtist("KlangKiste").build()
@@ -112,9 +128,35 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
  fun nextFileOrCue(){val c=controller?:return;val track=tracks.value.firstOrNull{it.track.id==_currentTrackId.value}?.track;val chapter=track?.cueJson?.let{CueParserJson.parse(it)}.orEmpty().firstOrNull{it.timeSeconds*1000>c.currentPosition+2000};if(chapter!=null){c.seekTo(c.currentMediaItemIndex.coerceAtLeast(0),(chapter.timeSeconds*1000).toLong());logAsync("seek",_currentTrackId.value,"Kapitel ${chapter.title}")}else if(c.currentMediaItemIndex+1<c.mediaItemCount)c.seekToNextMediaItem()else _message.value="Ende der Playlist"}
  fun adjustVolume(delta:Float){_volume.value=(_volume.value+delta).coerceIn(0f,1f);val v=_volume.value*settings.value.maxVolume;runCatching{controller?.volume=v*v};logAsync("volume",_currentTrackId.value,"${(_volume.value*100).toInt()}%")}
  fun playTestTone(){runCatching{MediaPlayer.create(app,R.raw.limit)?.apply{val v=settings.value.maxVolume;setVolume(v*v,v*v);setOnCompletionListener{it.release()};start()}?:run{_message.value="Testton nicht verfügbar."}}.onFailure{_message.value="Testtonfehler: ${it.message}"}}
- fun setSleepTimer(minutes:Double){updateSettings{it.copy(sleepTimerMinutes=minutes.coerceAtLeast(0.0))};sleepJob?.cancel();sleepJob=null;_sleepSeconds.value=0;app.startService(Intent(app,PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP));if(minutes>0&&_isPlaying.value)startSleepTimer(minutes)}
- private fun startSleepTimer(minutes:Double){sleepJob?.cancel();val seconds=(minutes*60).toInt().coerceAtLeast(1);_sleepSeconds.value=seconds;app.startService(Intent(app,PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_SLEEP).putExtra(PlaybackService.EXTRA_SECONDS,seconds.toLong()));sleepJob=viewModelScope.launch{while(_sleepSeconds.value>0&&isActive){delay(1000);if(_isPlaying.value)_sleepSeconds.value=(_sleepSeconds.value-1).coerceAtLeast(0)};if(_sleepSeconds.value==0&&isActive){_sleeping.value=true;controller?.pause();logAsync("sleep_start",_currentTrackId.value,"Schlafansicht");runCatching{MediaPlayer.create(app,R.raw.gutenacht)?.apply{val v=settings.value.maxVolume;setVolume(v,v);setOnCompletionListener{it.release()};start()}};delay(60000);_blackout.value=true;logAsync("sleep_blackout",_currentTrackId.value,"Schwarzer Overlay")}}}
- fun dismissSleepView(){sleepJob?.cancel();sleepJob=null;_sleeping.value=false;_blackout.value=false;_sleepSeconds.value=0;setChildMode(false);app.startService(Intent(app,PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP))}
+ fun setSleepStoryLimit(count:Int){
+  if(count !in 1..99)return
+  _sleepStoryLimit.value=count
+  _sleepStoriesRemaining.value=count
+  sleepPrefs.edit().putInt("story_limit",count).apply()
+  cancelRunningSleepTimer()
+ }
+ fun setSleepTimer(minutes:Double){
+  _sleepStoryLimit.value=0
+  _sleepStoriesRemaining.value=0
+  sleepPrefs.edit().remove("story_limit").apply()
+  updateSettings{it.copy(sleepTimerMinutes=minutes.coerceAtLeast(0.0))}
+  cancelRunningSleepTimer()
+  if(minutes>0&&_isPlaying.value)startSleepTimer(minutes)
+ }
+ private fun cancelRunningSleepTimer(){
+  sleepJob?.cancel();sleepJob=null;_sleepSeconds.value=0
+  app.startService(Intent(app,PlaybackService::class.java).setAction(PlaybackService.ACTION_CANCEL_SLEEP))
+ }
+ private fun startSleepTimer(minutes:Double){sleepJob?.cancel();val seconds=(minutes*60).toInt().coerceAtLeast(1);_sleepSeconds.value=seconds;app.startService(Intent(app,PlaybackService::class.java).setAction(PlaybackService.ACTION_SET_SLEEP).putExtra(PlaybackService.EXTRA_SECONDS,seconds.toLong()));sleepJob=viewModelScope.launch{while(_sleepSeconds.value>0&&isActive){delay(1000);if(_isPlaying.value)_sleepSeconds.value=(_sleepSeconds.value-1).coerceAtLeast(0)};if(_sleepSeconds.value==0&&isActive)startSleepView()}}
+ private fun startSleepView(){
+  if(_sleeping.value)return
+  _sleeping.value=true
+  controller?.pause()
+  logAsync("sleep_start",_currentTrackId.value,"Schlafansicht")
+  runCatching{MediaPlayer.create(app,R.raw.gutenacht)?.apply{val v=settings.value.maxVolume;setVolume(v,v);setOnCompletionListener{it.release()};start()}}
+  sleepJob=viewModelScope.launch{delay(60000);_blackout.value=true;logAsync("sleep_blackout",_currentTrackId.value,"Schwarzer Overlay")}
+ }
+ fun dismissSleepView(){cancelRunningSleepTimer();_sleeping.value=false;_blackout.value=false;_sleepStoriesRemaining.value=_sleepStoryLimit.value;setChildMode(false)}
  private fun finishSession(){val start=sessionStartMs?:return;sessionStartMs=null;val seconds=(System.currentTimeMillis()-start)/1000.0;if(seconds>2)logAsync("stop",_currentTrackId.value,"Wiedergabe pausiert",seconds);persistPosition()}
  private fun persistPosition(){val c=controller?:return;val id=c.currentMediaItem?.mediaId?:_currentTrackId.value?:return;viewModelScope.launch{db.trackDao().get(id)?.let{db.trackDao().upsert(it.copy(lastTrackIndex=c.currentMediaItemIndex.coerceAtLeast(0),lastPositionMs=c.currentPosition.coerceAtLeast(0),lastPlayedAt=System.currentTimeMillis()))}}}
  private suspend fun log(type:String,id:String?,duration:Double,detail:String){db.statsDao().insert(PlaybackEventEntity(timestamp=System.currentTimeMillis(),type=type,trackId=id,durationSec=duration,details=detail))}
