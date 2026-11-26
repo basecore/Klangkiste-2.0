@@ -1,27 +1,52 @@
-# KlangKiste 2.0 — native Android
+# KlangKiste 2.0
 
-Kotlin + Jetpack Compose + Room + Media3 Android Studio project. Not a WebView/PWA wrapper and not a MuPiBox port. No Google Play Services dependency.
+[![Android Debug APK](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml/badge.svg?branch=main)](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml) ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84) ![NFC optional](https://img.shields.io/badge/NFC-optional-blue) ![KI-generiert](https://img.shields.io/badge/Code-KI--generiert-purple)
 
-## Included
-- Native child player/library and parent administration.
-- Room metadata, settings, NFC bindings, progress and statistics.
-- SAF smart/flat and individual-file import preview, age/search filters, mass selection, file reference or app-private copy.
-- PWA `FULL_BACKUP_V1`/legacy JSON migration and export; missing media can be relinked.
-- Media3 background player/MediaSession, progress restoration, playlists/CUE seek, sleep timer.
-- OHRKA online metadata catalog and separate audio relink; optional online examples.
-- NFC reader mode, TTS German voice check, immersive mode and App-Pinning entry point.
-- Supplied artwork retained. Sleep background runs as a WebP derivative; original PNG is in `design/source-assets/`.
+**Aus einem alten Android-Smartphone wird eine Hörbox für Kinder.** Ähnlich wie bei der MuPiBox kann eine Karte oder ein NFC-Sticker ein Hörspiel starten. Hier übernimmt das Smartphone Anzeige, Akku, Lautsprecher und – sofern vorhanden – den NFC-Leser. Kein Raspberry Pi, kein externer NFC-Leser und kein zusätzlicher Lautsprecher nötig. Ohne NFC lässt sich die Bibliothek über den Bildschirm bedienen.
 
-See `FEATURE-MATRIX.md`, `docs/DATA-MIGRATION.md` and `docs/FAIRPHONE-5-TESTPLAN.md`.
+KlangKiste 2.0 ist eine native Android-Neuentwicklung auf Basis der Ideen, Gestaltung und Medien der [KlangKiste-PWA](https://github.com/basecore/klangkiste). Der Code ist KI-generiert und KI-gestützt weiterentwickelt. Die App ist weder ein PWA-Wrapper noch ein MuPiBox-Port und benötigt keine Google Play-Dienste.
 
-## Build
-Requirements: Android Studio with JDK 17, Android SDK platform 35 and build-tools 35.0.0. Open this root directory and sync Gradle. From a shell run `./gradlew :app:assembleDebug`. The bootstrap script uses installed Gradle or downloads Gradle 8.10.2. First download requires network access.
+## Voraussetzungen und Installation
 
-`.github/workflows/android-debug.yml` installs JDK 17, Gradle 8.10.2, `platform-tools`, platform 35 and build-tools 35.0.0, runs `assembleDebug` and uploads `app-debug.apk` as an Actions artifact. It sets `android-actions/setup-android@v3` with `packages: 'platform-tools'` and installs the platform/build-tools separately.
+- Android 8.0 (API 26) oder neuer; Zielversion Android 15 (API 35). Die Mindestversion ist eine Build-Angabe, keine Garantie für jedes Gerätemodell.
+- Für NFC: ein Handy mit aktiviertem NFC und ein kompatibler Tag. NFC ist optional.
+- Die erste APK ist als Vorschau vorgesehen. Veröffentlichte APKs stehen unter [Releases](https://github.com/basecore/Klangkiste-2.0/releases); erfolgreiche Test-Builds liegen unter [GitHub Actions](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml) als Artefakt `KlangKiste-2.0-debug-apk`. Das Actions-ZIP entpacken und `app-debug.apk` öffnen. Installationen aus unbekannten Quellen nur für die vertrauenswürdige Installationsquelle erlauben.
+- Debug-APKs dienen zum Ausprobieren. Ein späterer Wechsel der Signatur kann eine Neuinstallation erfordern; vorher Daten und Mediendateien sichern.
 
-No signing key is included. Release signing must use protected GitHub Secrets. **No successful build is claimed until Android Studio or Actions has actually built it.**
+## Was schon drin ist
 
-## Safety and offline use
-No broad storage permission is requested. SAF references depend on the saved URI grant; managed copies work offline and are removed on uninstall. A normal app cannot block every Android system gesture. App-Pinning is only a user-visible safeguard; Lock Task kiosk can require Device Owner configuration.
+| Bereich | Funktionen |
+| --- | --- |
+| Kinderplayer | Große Bedienelemente, optionale Bibliothek, Schlafansicht, Hintergrundwiedergabe und Wiederaufnahme des Hörfortschritts. |
+| NFC | Tags im Elternbereich einem Titel zuordnen und im Kindermodus zum Start ans Handy halten. Die Zuordnung liegt in der App; der Tag enthält nicht das Hörspiel. |
+| Bibliothek | Einzeldateien und Ordner mit Vorschau importieren, nach Suche oder Alter filtern, mehrere Titel auswählen, lokale Dateien referenzieren oder in den App-Speicher kopieren. Wiedergabelisten und CUE-Sprungmarken werden unterstützt. |
+| Hörregeln | Wiedergabezeitfenster, Ruhezeiten, Tageslimits je Wochentag (0 = unbegrenzt), heute gehörte und verbleibende Zeit, Abblenddauer, Schlaf-Timer nach Zeit oder Hörspielanzahl und Altersfilter für alle Hörspiele. Titel ohne Altersempfehlung bleiben erlaubt. |
+| Elternbereich | Verwaltung, Lautstärkebegrenzung und Testton, Prüfung auf eine deutsche Vorlesestimme, Nutzungsstatistik und Android-App-Pinning. |
+| Daten und Inhalte | JSON-Import und -Export, Migration bestehender PWA-Backups und erneutes Verknüpfen fehlender Audiodateien. OHRKA-Onlinekatalog für Metadaten mit separater Audiozuordnung sowie optionale Online-Beispiele. |
 
-TTS checks for a German voice at runtime. If only English RHVoice is installed, the app reports that German speech is unavailable and does not use the English voice for German text.
+Lokale Audiodateien lassen sich offline abspielen. Verknüpfte Dateien müssen für die App erreichbar bleiben; App-interne Kopien werden bei einer Deinstallation entfernt. Ein JSON-Backup ersetzt keine Sicherung der Audiodateien. Hinweise zur [Datenmigration](docs/DATA-MIGRATION.md).
+
+## Schnellstart
+
+1. Im Elternbereich eigene Hörspiele oder Musik importieren.
+2. Optional einen NFC-Tag scannen und einem Titel zuordnen.
+3. Unter **Einstellungen → Hörregeln** Zeiten, Limits und Filter festlegen.
+4. In den Kindermodus wechseln und einen Titel wählen oder einen zugeordneten Tag ans Handy halten.
+5. Zum Elternbereich zurückkehren: fünfmal zügig oben rechts tippen. Die Geste ist keine PIN-Sperre. Android-App-Pinning ersetzt weder die geplante PIN noch einen vollständigen Kioskmodus.
+
+## Ausblick
+
+- Optionale, standardmäßig deaktivierte vierstellige PIN für den Rückweg aus Kinderplayer und Schlafansicht. Dazu eine Elternhilfe für die Fünf-Tipp-Geste.
+- Hörregeln übersichtlicher gestalten: Zeit- und Wochentagsauswahl statt Eingabeformaten, klarere Gruppen und besser sichtbare Resthörzeit.
+- Optionale Inhalte-Plugins prüfen: etwa Hörspiele oder Hörbücher aus der ARD Mediathek sowie Spotify ausschließlich online. Beide Integrationen sind noch nicht enthalten und hängen von geeigneten offiziellen Schnittstellen, Nutzungsbedingungen und gegebenenfalls einem Konto ab. Spotify-Downloads für die Offline-Bibliothek sind nicht geplant.
+
+## Entwickeln und testen
+
+Native App mit Kotlin, Jetpack Compose, Room und Media3. Android Studio mit JDK 17, Android SDK 35 und Build-Tools 35.0.0 verwenden. Der erste Gradle-Lauf benötigt Internet.
+
+```sh
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
+```
+
+GitHub Actions baut die Debug-APK, prüft die verpackten Originalmedien und lädt die APK als Artefakt hoch. Ein erfolgreicher Build ersetzt keinen Gerätetest. Siehe [Funktionsmatrix](FEATURE-MATRIX.md) und [Fairphone-5-Testplan](docs/FAIRPHONE-5-TESTPLAN.md). Fehler bitte mit Modell, Android-Version, App-Version und Schritten zur Reproduktion unter [Issues](https://github.com/basecore/Klangkiste-2.0/issues) melden.
