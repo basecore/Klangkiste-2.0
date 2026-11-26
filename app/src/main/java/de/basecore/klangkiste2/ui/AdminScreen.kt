@@ -7,6 +7,8 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items as listItems
@@ -38,7 +40,7 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp: () -> Unit) {
     val candidates by vm.candidates.collectAsState()
@@ -59,7 +61,8 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
     var deleteIds by remember { mutableStateOf<Set<String>?>(null) }
     var areaDialog by remember { mutableStateOf(false) }
     var clear by remember { mutableStateOf(false) }
-    val selectedIds = selected.intersect(tracks.mapTo(mutableSetOf()) { it.track.id })
+    val allIds = remember(tracks) { tracks.map { it.track.id }.toSet() }
+    val selectedIds = selected.intersect(allIds)
     val knownAreas = remember(tracks) { tracks.flatMap { it.track.libraryAreas() }.distinctBy { it.lowercase() }.sorted() }
     val visible = remember(tracks, query) { tracks.filter { row ->
         val t = row.track
@@ -87,9 +90,7 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                     AdminAction("Fehlende Audiodateien verknüpfen") { repair.launch(null) }
                     AdminAction("Datenbank leeren") { clear = true }
                 }
-                AdminSection("Sichtbarkeit und Kindersicherung", section == "control", { section = if (section == "control") "" else "control" }) {
-                    AdminAction("Alle Hörspiele einblenden") { vm.setAllHidden(false) }
-                    AdminAction("Alle Hörspiele ausblenden") { vm.setAllHidden(true) }
+                AdminSection("Kindersicherung", section == "control", { section = if (section == "control") "" else "control" }) {
                     AdminAction("Android-App-Pinning starten", onPinApp)
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -106,12 +107,14 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                 if (selecting) {
                     Text("${selectedIds.size} markiert · ${selectedIds.size - visible.count { it.track.id in selectedIds }} außerhalb der Suche")
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        TextButton(onClick = { selected = selectedIds + visible.map { it.track.id } }, enabled = visible.isNotEmpty()) { Text("Sichtbare markieren") }
-                        TextButton(onClick = { selected = emptySet() }, enabled = selectedIds.isNotEmpty()) { Text("Auswahl leeren") }
+                        TextButton(onClick = { selected = allIds }, enabled = selectedIds.size < allIds.size) { Text("Alle markieren") }
+                        if (visible.size < allIds.size) TextButton(onClick = { selected = selectedIds + visible.map { it.track.id } }, enabled = visible.any { it.track.id !in selectedIds }) { Text("Sichtbare markieren") }
+                        TextButton(onClick = { selected = emptySet() }, enabled = selectedIds.isNotEmpty()) { Text("Auswahl aufheben") }
                     }
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(onClick = { areaDialog = true }, enabled = selectedIds.isNotEmpty()) { Text("Bereich zuweisen") }
-                        OutlinedButton(onClick = { media.hideTracks(selectedIds, vm::showMessage); finishSelection() }, enabled = selectedIds.isNotEmpty()) { Text("Ausblenden") }
+                        OutlinedButton(onClick = { media.setTracksHidden(selectedIds, true, vm::showMessage); finishSelection() }, enabled = selectedIds.isNotEmpty()) { Text("Ausblenden") }
+                        OutlinedButton(onClick = { media.setTracksHidden(selectedIds, false, vm::showMessage); finishSelection() }, enabled = selectedIds.isNotEmpty()) { Text("Einblenden") }
                         OutlinedButton(onClick = { deleteIds = selectedIds }, enabled = selectedIds.isNotEmpty() && selectedIds.none { it in downloading }) { Text("Löschen", color = if (selectedIds.isEmpty()) Color.Unspecified else MaterialTheme.colorScheme.error) }
                     }
                 }
@@ -121,7 +124,13 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
             val track = item.track
             val busy = track.id in downloading
             var menu by remember { mutableStateOf(false) }
-            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF42494C), contentColor = Color.White)) {
+            fun setMarked(checked: Boolean) { selected = if (checked) selected + track.id else selected - track.id }
+            Card(Modifier.fillMaxWidth().combinedClickable(
+                onClickLabel = if (selecting) "Markierung ändern" else "Menü öffnen",
+                onClick = { if (selecting) setMarked(track.id !in selected) else menu = true },
+                onLongClickLabel = "Hörspiel markieren",
+                onLongClick = { menu = false; selecting = true; setMarked(true) }
+            ), colors = CardDefaults.cardColors(containerColor = Color(0xFF42494C), contentColor = Color.White)) {
                 if (!settings.adminListView) CoverArt(track.coverUri, Modifier.fillMaxWidth().aspectRatio(1f))
                 Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (settings.adminListView && !selecting) CoverArt(track.coverUri, Modifier.size(48.dp))
@@ -133,8 +142,7 @@ fun AdminScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, onPinApp:
                         val areas = track.libraryAreas()
                         if (areas.isNotEmpty()) Text(areas.joinToString(" · "), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    if (selecting) Checkbox(track.id in selectedIds, { checked -> selected = if (checked) selectedIds + track.id else selectedIds - track.id },
-                        modifier = Modifier.semantics { contentDescription = track.title })
+                    if (selecting) Checkbox(track.id in selectedIds, { setMarked(it) }, modifier = Modifier.semantics { contentDescription = track.title })
                     else Box {
                         TextButton(onClick = { menu = true }, contentPadding = PaddingValues(0.dp)) { Text("Menü") }
                         DropdownMenu(menu, { menu = false }) {
@@ -339,8 +347,8 @@ internal class OfflineAudioViewModel(private val app: Application) : AndroidView
         catch (e: Exception) { message("Aktion fehlgeschlagen: ${e.localizedMessage}") }
     }
 
-    fun hideTracks(ids: Set<String>, message: (String) -> Unit) = batch(ids, message, { "$it Titel ausgeblendet." }) { track ->
-        if (track.hiddenInLibrary) false else { db.trackDao().upsert(track.copy(hiddenInLibrary = true)); true }
+    fun setTracksHidden(ids: Set<String>, hidden: Boolean, message: (String) -> Unit) = batch(ids, message, { "$it Titel ${if (hidden) "ausgeblendet" else "eingeblendet"}." }) { track ->
+        if (track.hiddenInLibrary == hidden) false else { db.trackDao().upsert(track.copy(hiddenInLibrary = hidden)); true }
     }
 
     fun deleteTracks(ids: Set<String>, message: (String) -> Unit) = batch(ids, message, { "$it Einträge gelöscht." }) { track ->
