@@ -1,1 +1,6 @@
-<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/klangkiste_icon" android:gravity="center" android:filter="true"/>
+<?xml version="1.0" encoding="utf-8"?>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="27%" android:insetTop="27%"
+    android:insetRight="27%" android:insetBottom="27%">
+    <bitmap android:src="@drawable/klangkiste_icon" android:gravity="fill" android:filter="true" />
+</inset>

@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +56,12 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
     val title = active?.track?.title ?: "Bereit zum Spielen!"
     val bg = remember(settings.backgroundColor) { runCatching { Color(AndroidColor.parseColor(settings.backgroundColor)) }.getOrDefault(Navy) }
     val coverShape = RoundedCornerShape(20.dp)
+    val volumeLevel = volume.coerceIn(0f, 1f)
+    val volumeColor = when {
+        volumeLevel >= .849f -> Color(0xFFFF4757)
+        volumeLevel >= .549f -> Color(0xFFF1C40F)
+        else -> Green
+    }
     Box(Modifier.fillMaxSize().background(if (childMode && settings.backgroundMode == "color") bg else Navy)) {
         if (childMode && settings.backgroundMode != "color") {
             val uri = settings.backgroundUri
@@ -61,13 +69,23 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
             else Image(painterResource(R.drawable.kids_background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
         BoxWithConstraints(Modifier.fillMaxSize().then(if (childMode) Modifier.windowInsetsPadding(WindowInsets.displayCutout) else Modifier)) {
+            val availableWidth = (maxWidth - 32.dp).coerceAtLeast(0.dp)
+            val coverSize = if (childMode) minOf(310.dp, availableWidth * .62f, maxHeight * .46f)
+                else minOf(280.dp, availableWidth * .52f, maxHeight * .42f)
             val minContentHeight = if (childMode) maxHeight else 0.dp
-            val coverSize = minOf(280.dp, (maxWidth - 32.dp).coerceAtLeast(0.dp) * .52f, maxHeight * .42f)
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = minContentHeight)
-                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = if (childMode) 28.dp else 16.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (childMode) 28.dp else 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (childMode) Spacer(Modifier.height(44.dp))
+                    if (childMode || sleepSeconds > 0) {
+                        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (childMode && settings.libraryEnabled) {
+                                RoundControl(Icons.Default.LibraryMusic, "Bibliothek", 52.dp, Navy.copy(alpha = .85f), Color.White, onOpenLibrary)
+                            }
+                            Spacer(Modifier.weight(1f))
+                            if (sleepSeconds > 0) SleepTimerBadge(sleepSeconds)
+                        }
+                    }
                     Text(title, Modifier.fillMaxWidth().background(Color.White.copy(alpha = .8f), RoundedCornerShape(15.dp)).padding(10.dp),
                         color = Navy, fontWeight = FontWeight.ExtraBold, fontSize = if (childMode) 28.sp else 22.sp,
                         textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -77,8 +95,6 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
                     }
                     Box(Modifier.size(coverSize).shadow(8.dp, coverShape).clip(coverShape).background(Gray).border(4.dp, Color.White, coverShape)) {
                         CoverArt(active?.track?.coverUri, Modifier.fillMaxSize(), title)
-                        if (sleepSeconds > 0) Text("Timer ${sleepSeconds / 60}:${(sleepSeconds % 60).toString().padStart(2, '0')}",
-                            Modifier.align(Alignment.TopEnd).padding(8.dp).background(Color.White, RoundedCornerShape(12.dp)).padding(horizontal = 8.dp, vertical = 4.dp), color = Navy)
                     }
                 }
                 Column(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -92,7 +108,8 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
                             RoundControl(Icons.Default.VolumeUp, "Lauter", sideSize, if (colorful) Color(0xFFFF4757) else Gray, if (colorful) Color.White else Navy) { vm.adjustVolume(.1f) }
                         }
                     }
-                    LinearProgressIndicator(progress = { volume.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(.85f).height(22.dp).clip(CircleShape), color = Green, trackColor = Color.White.copy(alpha = .75f))
+                    LinearProgressIndicator(progress = { volumeLevel }, modifier = Modifier.fillMaxWidth(.85f).height(22.dp).clip(CircleShape)
+                        .semantics { contentDescription = "Lautstärke" }, color = volumeColor, trackColor = Color.White.copy(alpha = .75f))
                     BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                         val size = minOf((maxWidth * .2f).coerceIn(44.dp, 70.dp), (maxWidth - 24.dp).coerceAtLeast(0.dp) / 4)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -114,10 +131,17 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
                 }
             }
         }
-        if (childMode && settings.libraryEnabled) {
-            Box(Modifier.align(Alignment.TopStart).windowInsetsPadding(WindowInsets.displayCutout).padding(12.dp)) {
-                RoundControl(Icons.Default.LibraryMusic, "Bibliothek", 52.dp, Navy.copy(alpha = .72f), Color.White, onOpenLibrary)
-            }
+    }
+}
+
+@Composable
+private fun SleepTimerBadge(seconds: Int) {
+    Row(Modifier.background(Navy.copy(alpha = .92f), RoundedCornerShape(18.dp)).padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+        Icon(Icons.Default.Bedtime, contentDescription = null, tint = Color(0xFFF1C40F), modifier = Modifier.size(24.dp))
+        Column {
+            Text("Schlaf-Timer", color = Gray, fontSize = 11.sp)
+            Text(formatTime(seconds * 1000L), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
