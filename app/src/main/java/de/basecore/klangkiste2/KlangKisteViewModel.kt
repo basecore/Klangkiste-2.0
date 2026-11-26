@@ -51,6 +51,7 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
  private var controller:MediaController?=null
  private var progressJob:Job?=null
  private var sleepJob:Job?=null
+ private var sleepPlayer:MediaPlayer?=null
  private var sessionStartMs:Long?=null
  private var lastSavedAt=0L
  private var pairingTrackId:String?=null
@@ -116,7 +117,7 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
    val c=controller?:run{_message.value="Player wird verbunden. Bitte kurz warten.";return@launch}
    val meta=MediaMetadata.Builder().setTitle(item.track.title).setArtist("KlangKiste").build()
    val queue=parts.map{MediaItem.Builder().setMediaId(item.track.id).setUri(Uri.parse(it.uriString)).setMediaMetadata(meta).build()}
-   c.setMediaItems(queue,item.track.lastTrackIndex.coerceIn(0,queue.lastIndex),item.track.lastPositionMs.coerceAtLeast(0));c.prepare();runCatching{c.volume=(_volume.value*settings.value.maxVolume).let{it*it}};c.play()
+   c.setMediaItems(queue,item.track.lastTrackIndex.coerceIn(0,queue.lastIndex),item.track.lastPositionMs.coerceAtLeast(0));c.prepare();runCatching{c.volume=playbackGain()};c.play()
    _currentTrackId.value=item.track.id;db.trackDao().upsert(item.track.copy(lastPlayedAt=System.currentTimeMillis()));updateSettings{it.copy(lastTrackId=item.track.id)}
   }
  }
@@ -126,7 +127,8 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
  fun skipBack(){controller?.let{it.seekTo((it.currentPosition-30000).coerceAtLeast(0))};logAsync("seek",_currentTrackId.value,"-30 Sekunden")}
  fun restartPlaylist(){controller?.seekTo(0,0);logAsync("control",_currentTrackId.value,"Reset")}
  fun nextFileOrCue(){val c=controller?:return;val track=tracks.value.firstOrNull{it.track.id==_currentTrackId.value}?.track;val chapter=track?.cueJson?.let{CueParserJson.parse(it)}.orEmpty().firstOrNull{it.timeSeconds*1000>c.currentPosition+2000};if(chapter!=null){c.seekTo(c.currentMediaItemIndex.coerceAtLeast(0),(chapter.timeSeconds*1000).toLong());logAsync("seek",_currentTrackId.value,"Kapitel ${chapter.title}")}else if(c.currentMediaItemIndex+1<c.mediaItemCount)c.seekToNextMediaItem()else _message.value="Ende der Playlist"}
- fun adjustVolume(delta:Float){_volume.value=(_volume.value+delta).coerceIn(0f,1f);val v=_volume.value*settings.value.maxVolume;runCatching{controller?.volume=v*v};logAsync("volume",_currentTrackId.value,"${(_volume.value*100).toInt()}%")}
+ private fun playbackGain():Float{val level=_volume.value.coerceIn(0f,1f)*settings.value.maxVolume.coerceIn(0f,1f);return level*level}
+ fun adjustVolume(delta:Float){_volume.value=(_volume.value+delta).coerceIn(0f,1f);val gain=playbackGain();runCatching{controller?.volume=gain};runCatching{sleepPlayer?.setVolume(gain,gain)};logAsync("volume",_currentTrackId.value,"${(_volume.value*100).toInt()}%")}
  fun playTestTone(){runCatching{MediaPlayer.create(app,R.raw.limit)?.apply{val v=settings.value.maxVolume;setVolume(v*v,v*v);setOnCompletionListener{it.release()};start()}?:run{_message.value="Testton nicht verfügbar."}}.onFailure{_message.value="Testtonfehler: ${it.message}"}}
  fun setSleepStoryLimit(count:Int){
   if(count !in 1..99)return
@@ -153,10 +155,24 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
   _sleeping.value=true
   controller?.pause()
   logAsync("sleep_start",_currentTrackId.value,"Schlafansicht")
-  runCatching{MediaPlayer.create(app,R.raw.gutenacht)?.apply{val v=settings.value.maxVolume;setVolume(v,v);setOnCompletionListener{it.release()};start()}}
+  playSleepSound()
   sleepJob=viewModelScope.launch{delay(60000);_blackout.value=true;logAsync("sleep_blackout",_currentTrackId.value,"Schwarzer Overlay")}
  }
- fun dismissSleepView(){cancelRunningSleepTimer();_sleeping.value=false;_blackout.value=false;_sleepStoriesRemaining.value=_sleepStoryLimit.value;setChildMode(false)}
+ private fun playSleepSound(){
+  releaseSleepSound()
+  val gain=playbackGain()
+  if(gain==0f)return
+  runCatching{
+   val player=MediaPlayer.create(app,R.raw.gutenacht)?:return
+   sleepPlayer=player
+   player.setVolume(gain,gain)
+   player.setOnCompletionListener{if(sleepPlayer===it)releaseSleepSound()}
+   player.setOnErrorListener{p,_,_->if(sleepPlayer===p)releaseSleepSound();true}
+   player.start()
+  }.onFailure{releaseSleepSound()}
+ }
+ private fun releaseSleepSound(){val player=sleepPlayer;sleepPlayer=null;player?.release()}
+ fun dismissSleepView(){cancelRunningSleepTimer();releaseSleepSound();_sleeping.value=false;_blackout.value=false;_sleepStoriesRemaining.value=_sleepStoryLimit.value;setChildMode(false)}
  private fun finishSession(){val start=sessionStartMs?:return;sessionStartMs=null;val seconds=(System.currentTimeMillis()-start)/1000.0;if(seconds>2)logAsync("stop",_currentTrackId.value,"Wiedergabe pausiert",seconds);persistPosition()}
  private fun persistPosition(){val c=controller?:return;val id=c.currentMediaItem?.mediaId?:_currentTrackId.value?:return;viewModelScope.launch{db.trackDao().get(id)?.let{db.trackDao().upsert(it.copy(lastTrackIndex=c.currentMediaItemIndex.coerceAtLeast(0),lastPositionMs=c.currentPosition.coerceAtLeast(0),lastPlayedAt=System.currentTimeMillis()))}}}
  private suspend fun log(type:String,id:String?,duration:Double,detail:String){db.statsDao().insert(PlaybackEventEntity(timestamp=System.currentTimeMillis(),type=type,trackId=id,durationSec=duration,details=detail))}
@@ -166,7 +182,7 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
  fun deleteTrack(track:TrackEntity){viewModelScope.launch{db.trackDao().delete(track.id);_message.value="Eintrag gelöscht."}}
  fun saveEditedTrack(track:TrackEntity){viewModelScope.launch{db.trackDao().upsert(track);_message.value="Änderungen gespeichert."}}
  fun beginNfcPairing(trackId:String){pairingTrackId=trackId;_message.value="Jetzt NFC-Tag an das Gerät halten."}
- fun onNfcTag(uid:String){viewModelScope.launch{val normalized=uid.replace(Regex("[:\\-\\s]"),"").uppercase(Locale.ROOT);log("scan",_currentTrackId.value,0.0,uid);if(_isChildMode.value){val id=db.nfcTagDao().get(normalized)?.trackId;val item=tracks.value.firstOrNull{it.track.id==id};if(item!=null)playTrack(item)else _message.value="Unbekannter NFC-Tag."}else{val target=pairingTrackId;if(target!=null){db.nfcTagDao().upsert(NfcTagEntity(normalized,target));pairingTrackId=null;_message.value="NFC-Tag gespeichert."}else _message.value="NFC-Tag erkannt: $uid"}}}
+ fun onNfcTag(uid:String){viewModelScope.launch{val normalized=uid.replace(Regex("[:\\-\\s]"),"").uppercase(Locale.ROOT);log("scan",_currentTrackId.value,0.0,uid);if(_isChildMode.value){val id=db.nfcTagDao().get(normalized)?.trackId?:return@launch;val item=tracks.value.firstOrNull{it.track.id==id};if(item!=null)playTrack(item)else _message.value="Unbekannter NFC-Tag."}else{val target=pairingTrackId;if(target!=null){db.nfcTagDao().upsert(NfcTagEntity(normalized,target));pairingTrackId=null;_message.value="NFC-Tag gespeichert."}else _message.value="NFC-Tag erkannt: $uid"}}}
  fun speakTitle(title:String){if(!_ttsAvailable.value){_message.value=ttsStatus;return};tts?.speak(title,TextToSpeech.QUEUE_FLUSH,null,"klangkiste-title")}
  fun clearAll(){viewModelScope.launch{controller?.stop();db.withTransaction{db.trackDao().deleteAll();db.nfcTagDao().clear();db.statsDao().clear()};_message.value="Bibliothek und Verlauf geleert."}}
 
@@ -182,5 +198,5 @@ class KlangKisteViewModel(application:Application):AndroidViewModel(application)
  fun installOhrkaCatalog()=importer.installOhrkaCatalog()
  fun loadOnlineExamples()=importer.loadOnlineExamples()
 
- override fun onCleared(){progressJob?.cancel();sleepJob?.cancel();controller?.removeListener(listener);controller?.release();tts?.stop();tts?.shutdown();super.onCleared()}
+ override fun onCleared(){progressJob?.cancel();sleepJob?.cancel();releaseSleepSound();controller?.removeListener(listener);controller?.release();tts?.stop();tts?.shutdown();super.onCleared()}
 }

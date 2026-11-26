@@ -53,7 +53,8 @@ fun KlangKisteApp(viewModel: KlangKisteViewModel, onPinApp: () -> Unit) {
     val currentId by viewModel.currentTrackId.collectAsState()
     val active = tracks.firstOrNull { it.track.id == currentId }
     val snack = remember { SnackbarHostState() }
-    var page by rememberSaveable { mutableStateOf(ParentPage.ADMIN) }
+    var pageName by rememberSaveable { mutableStateOf(ParentPage.ADMIN.name) }
+    val page = ParentPage.entries.firstOrNull { it.name == pageName } ?: ParentPage.ADMIN
     val immersive = child || sleep
     val prefs = remember(context) { context.getSharedPreferences("display_settings", Context.MODE_PRIVATE) }
     var storedMode by remember(prefs) {
@@ -80,7 +81,7 @@ fun KlangKisteApp(viewModel: KlangKisteViewModel, onPinApp: () -> Unit) {
         } else controller.show(WindowInsetsCompat.Type.systemBars())
     }
     BackHandler(enabled = immersive || page != ParentPage.ADMIN) {
-        if (!immersive) page = ParentPage.ADMIN
+        if (!immersive) pageName = ParentPage.ADMIN.name
     }
     Box(Modifier.fillMaxSize().background(ParentBackground)) {
         when {
@@ -98,10 +99,10 @@ fun KlangKisteApp(viewModel: KlangKisteViewModel, onPinApp: () -> Unit) {
                                 Text("Zum Kindermodus", fontWeight = FontWeight.Bold)
                             }
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp)) {
-                                TextButton(onClick = { page = ParentPage.SETTINGS }) { Text("Einstellungen") }
-                                TextButton(onClick = { page = ParentPage.STATS }) { Text("Statistik") }
+                                TextButton(onClick = { pageName = ParentPage.SETTINGS.name }) { Text("Einstellungen") }
+                                TextButton(onClick = { pageName = ParentPage.STATS.name }) { Text("Statistik") }
                             }
-                        } else TextButton(onClick = { page = ParentPage.ADMIN }, modifier = Modifier.padding(start = 8.dp)) { Text("Zurück zum Elternbereich") }
+                        } else TextButton(onClick = { pageName = ParentPage.ADMIN.name }, modifier = Modifier.padding(start = 8.dp)) { Text("Zurück zum Elternbereich") }
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when (page) {
                                 ParentPage.ADMIN -> AdminScreen(viewModel, tracks, onPinApp)
@@ -127,7 +128,7 @@ fun KlangKisteApp(viewModel: KlangKisteViewModel, onPinApp: () -> Unit) {
                     lastTap = now
                     if (taps >= 5) {
                         taps = 0
-                        page = ParentPage.ADMIN
+                        pageName = ParentPage.ADMIN.name
                         if (sleep) viewModel.dismissSleepView() else viewModel.setChildMode(false)
                     }
                 }
