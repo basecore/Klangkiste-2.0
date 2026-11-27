@@ -1,6 +1,6 @@
 # KlangKiste 2.0
 
-[![Android Debug APK](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml/badge.svg?branch=main)](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml) ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84) ![NFC optional](https://img.shields.io/badge/NFC-optional-blue) ![KI-generiert](https://img.shields.io/badge/Code-KI--generiert-purple)
+[![APK herunterladen](https://img.shields.io/badge/APK-v2.0.0--preview.1-2ea44f)](https://github.com/basecore/Klangkiste-2.0/releases/download/v2.0.0-preview.1/KlangKiste-2.0.0-preview.1-debug.apk) [![Android Debug APK](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml/badge.svg?branch=main)](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml) ![Android 8.0+](https://img.shields.io/badge/Android-8.0%2B-3DDC84) ![NFC optional](https://img.shields.io/badge/NFC-optional-blue) ![KI-generiert](https://img.shields.io/badge/Code-KI--generiert-purple)
 
 **Aus einem alten Android-Smartphone wird eine Hörbox für Kinder.** Ähnlich wie bei der MuPiBox kann eine Karte oder ein NFC-Sticker ein Hörspiel starten. Hier übernimmt das Smartphone Anzeige, Akku, Lautsprecher und – sofern vorhanden – den NFC-Leser. Kein Raspberry Pi, kein externer NFC-Leser und kein zusätzlicher Lautsprecher nötig. Ohne NFC lässt sich die Bibliothek über den Bildschirm bedienen.
 
@@ -10,8 +10,15 @@ KlangKiste 2.0 ist eine native Android-Neuentwicklung auf Basis der Ideen, Gesta
 
 - Android 8.0 (API 26) oder neuer; Zielversion Android 15 (API 35). Die Mindestversion ist eine Build-Angabe, keine Garantie für jedes Gerätemodell.
 - Für NFC: ein Handy mit aktiviertem NFC und ein kompatibler Tag. NFC ist optional.
-- Die erste APK ist als Vorschau vorgesehen. Veröffentlichte APKs stehen unter [Releases](https://github.com/basecore/Klangkiste-2.0/releases); erfolgreiche Test-Builds liegen unter [GitHub Actions](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml) als Artefakt `KlangKiste-2.0-debug-apk`. Das Actions-ZIP entpacken und `app-debug.apk` öffnen. Installationen aus unbekannten Quellen nur für die vertrauenswürdige Installationsquelle erlauben.
 - Debug-APKs dienen zum Ausprobieren. Ein späterer Wechsel der Signatur kann eine Neuinstallation erfordern; vorher Daten und Mediendateien sichern.
+
+### APK herunterladen
+
+- [APK direkt herunterladen](https://github.com/basecore/Klangkiste-2.0/releases/download/v2.0.0-preview.1/KlangKiste-2.0.0-preview.1-debug.apk)
+- [Release-Notizen zur ersten APK-Vorschau](https://github.com/basecore/Klangkiste-2.0/releases/tag/v2.0.0-preview.1)
+- [Alle Versionen](https://github.com/basecore/Klangkiste-2.0/releases)
+
+Öffne die heruntergeladene `.apk` auf deinem Android-Gerät. Erlaube die Installation aus unbekannten Quellen bei Bedarf nur für die verwendete vertrauenswürdige Installationsquelle. Die APK ist eine Debug-Vorschau, keine stabile Version.
 
 ## Was schon drin ist
 
@@ -49,4 +56,4 @@ Native App mit Kotlin, Jetpack Compose, Room und Media3. Android Studio mit JDK 
 ./gradlew :app:testDebugUnitTest
 ```
 
-GitHub Actions baut die Debug-APK, prüft die verpackten Originalmedien und lädt die APK als Artefakt hoch. Ein erfolgreicher Build ersetzt keinen Gerätetest. Siehe [Funktionsmatrix](FEATURE-MATRIX.md) und [Fairphone-5-Testplan](docs/FAIRPHONE-5-TESTPLAN.md). Fehler bitte mit Modell, Android-Version, App-Version und Schritten zur Reproduktion unter [Issues](https://github.com/basecore/Klangkiste-2.0/issues) melden.
+[GitHub Actions](https://github.com/basecore/Klangkiste-2.0/actions/workflows/android-debug.yml) baut die Debug-APK, prüft die verpackten Originalmedien und lädt sie als Artefakt `KlangKiste-2.0-debug-apk` hoch. Ein erfolgreicher Build ersetzt keinen Gerätetest. Siehe [Funktionsmatrix](FEATURE-MATRIX.md) und [Fairphone-5-Testplan](docs/FAIRPHONE-5-TESTPLAN.md). Fehler bitte mit Modell, Android-Version, App-Version und Schritten zur Reproduktion unter [Issues](https://github.com/basecore/Klangkiste-2.0/issues) melden.
