@@ -37,6 +37,7 @@ private val PanelShape = RoundedCornerShape(14.dp)
 @Composable
 internal fun SettingsScreen(vm: KlangKisteViewModel, settings: AppSettingsEntity, onPinApp: () -> Unit, mode: DisplayMode, onMode: (DisplayMode) -> Unit) {
     val context = LocalContext.current
+    val kidsPreferences = rememberKidsLibraryPreferences()
     val tts by vm.ttsAvailable.collectAsState()
     val remaining by vm.sleepSeconds.collectAsState()
     val storyLimit by vm.sleepStoryLimit.collectAsState()
@@ -107,6 +108,7 @@ internal fun SettingsScreen(vm: KlangKisteViewModel, settings: AppSettingsEntity
         item {
             DashboardPanel("Kindermodus & Bibliothek") {
                 SettingSwitch("Bibliothek anzeigen", null, settings.libraryEnabled) { v -> vm.updateSettings { it.copy(libraryEnabled = v) } }
+                SettingSwitch("Würfel-Taste anzeigen", "Startet im Kinderplayer ein zufälliges sichtbares Hörspiel mit Audiodateien innerhalb der eingestellten Altersgrenze.", kidsPreferences.randomEnabled, kidsPreferences::setRandomEnabled)
                 SettingSwitch("Bunte Player-Tasten", null, settings.colorfulControls) { v -> vm.updateSettings { it.copy(colorfulControls = v) } }
                 HorizontalDivider()
                 Text("Hintergrund", style = MaterialTheme.typography.titleSmall)
