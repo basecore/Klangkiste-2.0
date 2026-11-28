@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -63,13 +64,18 @@ internal fun rememberKidsLibraryPreferences(): KidsLibraryPreferences {
 internal fun TrackWithAudio.isKidsRandomCandidate(maxAge: Int): Boolean =
     !track.hiddenInLibrary && audioParts.isNotEmpty() && (track.ageRecommendation?.let { it <= maxAge } ?: true)
 
-internal data class KidsArea(val key: String, val label: String, val count: Int, val fallbackCover: String?)
+internal data class KidsArea(val key: String, val label: String, val count: Int, val previewCovers: List<String>) {
+    val fallbackCover: String? get() = previewCovers.firstOrNull()
+}
 
 internal fun kidsAreas(tracks: List<TrackWithAudio>): List<KidsArea> {
     val entries = tracks.sortedBy { it.track.title.lowercase(Locale.ROOT) }
         .flatMap { item -> item.track.libraryAreas().map { label -> label to item.track.coverUri } }
     return entries.groupBy { (label, _) -> label.lowercase(Locale.ROOT) }
-        .map { (key, rows) -> KidsArea(key, rows.first().first, rows.size, rows.firstNotNullOfOrNull { it.second?.takeIf(String::isNotBlank) }) }
+        .map { (key, rows) ->
+            val covers = rows.asSequence().mapNotNull { it.second?.takeIf(String::isNotBlank) }.distinct().take(4).toList()
+            KidsArea(key, rows.first().first, rows.size, covers)
+        }
         .sortedBy { it.key }
 }
 
@@ -82,23 +88,53 @@ internal fun RandomStoryButton(enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
+private fun AreaPreviewCell(uri: String?, modifier: Modifier, ink: Color) {
+    if (uri != null) CoverArt(uri, modifier, "Folgen-Cover")
+    else Box(modifier.background(Color(0xFFE8F7F9), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+        Icon(Icons.Default.Folder, null, Modifier.size(26.dp), tint = ink.copy(alpha = .65f))
+    }
+}
+
+@Composable
+private fun AreaCoverPreview(area: KidsArea, customCover: String?, ink: Color) {
+    when {
+        customCover != null -> CoverArt(customCover, Modifier.fillMaxSize(), "Cover für ${area.label}")
+        area.count <= 1 -> AreaPreviewCell(area.fallbackCover, Modifier.fillMaxSize(), ink)
+        area.count == 2 -> Row(Modifier.fillMaxSize().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            repeat(2) { index ->
+                AreaPreviewCell(area.previewCovers.getOrNull(index), Modifier.weight(1f).fillMaxHeight(), ink)
+            }
+        }
+        else -> Column(Modifier.fillMaxSize().padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            repeat(2) { row ->
+                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    repeat(2) { column ->
+                        AreaPreviewCell(area.previewCovers.getOrNull(row * 2 + column), Modifier.weight(1f).fillMaxHeight(), ink)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun KidsAreaTile(area: KidsArea, customCover: String?, onOpen: () -> Unit) {
     val ink = Color(0xFF2C3E50)
     Card(onClick = onOpen, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(15.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White, contentColor = ink)) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
-            val cover = customCover ?: area.fallbackCover
-            if (cover != null) CoverArt(cover, Modifier.fillMaxSize(), "Cover für ${area.label}")
-            else Surface(Modifier.fillMaxSize(), color = Color(0xFFE8F7F9)) {
-                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Folder, null, Modifier.size(58.dp), tint = ink) }
-            }
-            Surface(Modifier.align(Alignment.BottomEnd).padding(7.dp), shape = RoundedCornerShape(20.dp), color = ink) {
-                Icon(Icons.Default.Folder, null, Modifier.padding(6.dp).size(20.dp), tint = Color.White)
+        Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Color(0xFFCEDDE6))) {
+            AreaCoverPreview(area, customCover, ink)
+            Surface(Modifier.align(Alignment.BottomEnd).padding(7.dp), shape = RoundedCornerShape(12.dp), color = ink, contentColor = Color.White) {
+                Row(Modifier.padding(horizontal = 7.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Icon(Icons.Default.Folder, null, Modifier.size(17.dp))
+                    Text(area.count.toString(), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                }
             }
         }
         Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(area.label, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(if (area.count == 1) "1 Hörspiel" else "${area.count} Hörspiele", style = MaterialTheme.typography.bodySmall)
+            Text(if (area.count == 1) "1 Hörspiel" else "Sammlung · ${area.count} Hörspiele", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -137,7 +173,7 @@ internal fun AreaCoverSettings(tracks: List<TrackWithAudio>, preferences: KidsLi
     }
     val custom = preferences.cover(area.key)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        CoverArt(custom ?: area.fallbackCover, Modifier.size(56.dp), "Vorschau: ${area.label}")
+        Box(Modifier.size(56.dp)) { AreaCoverPreview(area, custom, Color(0xFF2C3E50)) }
         OutlinedButton(onClick = { error = false; picking = area.key; picker.launch(arrayOf("image/*")) }) { Text("Übercover wählen") }
     }
     if (custom != null) TextButton(onClick = { preferences.setCover(area.key, null); error = false }) { Text("Eigenes Cover entfernen") }
