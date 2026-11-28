@@ -1,5 +1,6 @@
 package de.basecore.klangkiste2.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,6 +41,8 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
     var query by remember { mutableStateOf("") }
     var genre by remember { mutableStateOf<String?>(null) }
     var area by rememberSaveable { mutableStateOf<String?>(null) }
+    var flatKidsLibrary by rememberSaveable { mutableStateOf(false) }
+    val childPreferences = rememberKidsLibraryPreferences()
     var childMaxAge by remember { mutableStateOf(99) }
     var ageMenu by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<TrackEntity?>(null) }
@@ -51,6 +54,7 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
     val areasById = remember(available) { available.associate { it.track.id to it.track.libraryAreas() } }
     val areas = remember(areasById) { areasById.values.flatten().distinctBy { it.lowercase() }.sortedBy { it.lowercase() } }
     val selectedArea = areas.firstOrNull { it.equals(area, true) }
+    BackHandler(enabled = childMode && selectedArea != null && info == null) { area = null }
     val genres = remember(available) { available.map { it.track.genre }.filter { it.isNotBlank() }.distinct().sorted() }
     val selectedGenre = genre?.takeIf { it in genres }
     val visible = remember(available, query, selectedGenre, ageLimit, selectedArea, areasById) {
@@ -64,6 +68,11 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
     val recent = remember(visible, childMode, selectedArea) {
         if (childMode && selectedArea == null) visible.filter { it.track.lastPlayedAt > 0 }.sortedByDescending { it.track.lastPlayedAt }.take(3) else emptyList()
     }
+    val showFolders = childMode && selectedArea == null && !flatKidsLibrary
+    val folders = remember(visible, showFolders) { if (showFolders) kidsAreas(visible) else emptyList() }
+    val individualTracks = remember(visible, folders, areasById) {
+        if (folders.isEmpty()) visible else visible.filter { areasById[it.track.id].isNullOrEmpty() }
+    }
     fun play(item: TrackWithAudio) { vm.playTrack(item); if (childMode) onBack?.invoke() }
     Box(Modifier.fillMaxSize().background(LibraryNavy)) {
         Column(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = if (childMode) 44.dp else 14.dp)) {
@@ -74,7 +83,11 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
                 }
             }
             if (!childMode) TextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Titel, Beschreibung, Genre oder Tag") })
-            if (areas.isNotEmpty()) {
+            if (childMode && areas.isNotEmpty()) {
+                if (selectedArea != null) TextButton(onClick = { area = null }) { Text("‹ Zurück zur Übersicht", color = Color.White) }
+                else LibraryChip(if (flatKidsLibrary) "Bereiche anzeigen" else "Alle Titel einzeln", flatKidsLibrary) { flatKidsLibrary = !flatKidsLibrary }
+            }
+            if (!childMode && areas.isNotEmpty()) {
                 SectionLabel("Hörbuchbereiche")
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     item { LibraryChip("Alle Bereiche", selectedArea == null) { area = null } }
@@ -112,18 +125,28 @@ fun LibraryScreen(vm: KlangKisteViewModel, tracks: List<TrackWithAudio>, setting
                         }
                     }
                 }
-            } else LazyVerticalGrid(GridCells.Fixed(2), Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = if (childMode && onBack != null) 80.dp else 16.dp)) {
-                if (recent.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SectionLabel("Zuletzt gehört")
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(recent, key = { it.track.id }) { item -> LibraryTile(item.track, Modifier.width(120.dp), { play(item) }, { info = item.track }) }
+            } else key(selectedArea, flatKidsLibrary) {
+                LazyVerticalGrid(GridCells.Fixed(2), Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = if (childMode && onBack != null) 80.dp else 16.dp)) {
+                    if (folders.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel("Hörbuchbereiche") }
+                        items(folders, key = { "area:${it.key}" }) { folder ->
+                            KidsAreaTile(folder, childPreferences.cover(folder.key)) { area = folder.label }
                         }
                     }
+                    if (recent.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            SectionLabel("Zuletzt gehört")
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(recent, key = { it.track.id }) { item -> LibraryTile(item.track, Modifier.width(120.dp), { play(item) }, { info = item.track }) }
+                            }
+                        }
+                    }
+                    if ((childMode || selectedArea != null) && individualTracks.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                        SectionLabel(selectedArea ?: if (folders.isEmpty()) "Alle Hörspiele" else "Hörspiele ohne Bereich")
+                    }
+                    items(individualTracks, key = { "track:${it.track.id}" }) { item -> LibraryTile(item.track, Modifier.fillMaxWidth(), { play(item) }, { info = item.track }) }
                 }
-                if (childMode || selectedArea != null) item(span = { GridItemSpan(maxLineSpan) }) { SectionLabel(selectedArea ?: "Alle Hörspiele") }
-                items(visible, key = { it.track.id }) { item -> LibraryTile(item.track, Modifier.fillMaxWidth(), { play(item) }, { info = item.track }) }
             }
         }
         if (childMode && onBack != null) Button(onClick = onBack,
