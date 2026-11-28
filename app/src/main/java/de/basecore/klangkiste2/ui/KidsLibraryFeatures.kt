@@ -24,8 +24,8 @@ import de.basecore.klangkiste2.data.TrackWithAudio
 import java.util.Locale
 
 internal class KidsLibraryPreferences(private val preferences: SharedPreferences) {
-    var randomEnabled by mutableStateOf(preferences.getBoolean("random_enabled", false))
-        private set
+    private val randomEnabledState = mutableStateOf(preferences.getBoolean("random_enabled", false))
+    val randomEnabled: Boolean get() = randomEnabledState.value
     private val covers = mutableStateMapOf<String, String>().apply {
         preferences.all.forEach { (key, value) ->
             if (key.startsWith("cover:") && value is String) put(key.removePrefix("cover:"), value)
@@ -33,7 +33,7 @@ internal class KidsLibraryPreferences(private val preferences: SharedPreferences
     }
 
     fun setRandomEnabled(value: Boolean) {
-        randomEnabled = value
+        randomEnabledState.value = value
         preferences.edit().putBoolean("random_enabled", value).apply()
     }
 
