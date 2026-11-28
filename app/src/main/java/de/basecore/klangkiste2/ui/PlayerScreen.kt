@@ -47,6 +47,7 @@ private val Blue = Color(0xFF3498DB)
 private val Gray = Color(0xFFDFE4EA)
 private val Red = Color(0xFFFF4757)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: AppSettingsEntity, childMode: Boolean, onOpenLibrary: () -> Unit) {
     val playing by vm.isPlaying.collectAsState()
@@ -174,7 +175,7 @@ fun SleepOverlay(blackout: Boolean, onExit: () -> Unit) {
             val transition = rememberInfiniteTransition(label = "sleep")
             val scale by transition.animateFloat(1f, 1.04f, infiniteRepeatable(tween(3000), RepeatMode.Reverse), label = "pulse")
             Image(painterResource(R.drawable.background_sleep), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painterResource(R.drawable.note_sleeping_small), "Schlafende Note", Modifier.size(150.dp).graphicsLayer(scaleX = scale, scaleY = scale), contentScale = ContentScale.Fit)
                 Spacer(Modifier.height(16.dp))
                 Text("Schlafenszeit …", color = Color.White.copy(alpha = .75f), fontSize = 20.sp)
