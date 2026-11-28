@@ -55,6 +55,8 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
     val duration by vm.durationMs.collectAsState()
     val volume by vm.volume.collectAsState()
     val sleepSeconds by vm.sleepSeconds.collectAsState()
+    val preferences = rememberKidsLibraryPreferences()
+    val showDice = childMode && preferences.randomEnabled
     val title = active?.track?.title ?: "Bereit zum Spielen!"
     val bg = remember(settings.backgroundColor) { runCatching { Color(AndroidColor.parseColor(settings.backgroundColor)) }.getOrDefault(Navy) }
     val coverShape = RoundedCornerShape(20.dp)
@@ -82,10 +84,11 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if ((childMode && settings.libraryEnabled) || sleepSeconds > 0) {
-                        Row(Modifier.fillMaxWidth().padding(end = 60.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if ((childMode && settings.libraryEnabled) || showDice || sleepSeconds > 0) {
+                        FlowRow(Modifier.fillMaxWidth().padding(end = 60.dp).heightIn(min = 48.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             if (childMode && settings.libraryEnabled) RoundControl(Icons.Default.LibraryMusic, "Bibliothek", 48.dp, Color.White.copy(alpha = .85f), Navy, onOpenLibrary)
-                            Spacer(Modifier.weight(1f))
+                            if (showDice) DicePlayerControl(vm, settings.maxAge)
                             if (sleepSeconds > 0) SleepTimerBadge(sleepSeconds)
                         }
                     } else if (childMode) Spacer(Modifier.height(52.dp))
@@ -134,6 +137,19 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DicePlayerControl(vm: KlangKisteViewModel, maxAge: Int) {
+    val tracks by vm.tracks.collectAsState()
+    val hasCandidate = remember(tracks, maxAge) { tracks.any { it.isKidsRandomCandidate(maxAge) } }
+    RandomStoryButton(enabled = hasCandidate) {
+        val currentId = vm.currentTrackId.value
+        val allowedAge = vm.settings.value.maxAge
+        val candidates = vm.tracks.value.filter { it.isKidsRandomCandidate(allowedAge) }
+        val alternatives = candidates.filterNot { it.track.id == currentId }
+        alternatives.ifEmpty { candidates }.randomOrNull()?.let(vm::playTrack)
     }
 }
 
