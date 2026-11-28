@@ -45,7 +45,9 @@ private val Navy = Color(0xFF2C3E50)
 private val Green = Color(0xFF2ECC71)
 private val Blue = Color(0xFF3498DB)
 private val Gray = Color(0xFFDFE4EA)
+private val Red = Color(0xFFFF4757)
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: AppSettingsEntity, childMode: Boolean, onOpenLibrary: () -> Unit) {
     val playing by vm.isPlaying.collectAsState()
@@ -58,10 +60,11 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
     val coverShape = RoundedCornerShape(20.dp)
     val volumeLevel = volume.coerceIn(0f, 1f)
     val volumeColor = when {
-        volumeLevel >= .849f -> Color(0xFFFF4757)
+        volumeLevel >= .849f -> Red
         volumeLevel >= .549f -> Color(0xFFF1C40F)
         else -> Green
     }
+    val colorful = childMode && settings.colorfulControls
     Box(Modifier.fillMaxSize().background(if (childMode && settings.backgroundMode == "color") bg else Navy)) {
         if (childMode && settings.backgroundMode != "color") {
             val uri = settings.backgroundUri
@@ -69,62 +72,62 @@ fun PlayerScreen(vm: KlangKisteViewModel, active: TrackWithAudio?, settings: App
             else Image(painterResource(R.drawable.kids_background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
         BoxWithConstraints(Modifier.fillMaxSize().then(if (childMode) Modifier.windowInsetsPadding(WindowInsets.displayCutout) else Modifier)) {
-            val availableWidth = (maxWidth - 32.dp).coerceAtLeast(0.dp)
-            val coverSize = if (childMode) minOf(310.dp, availableWidth * .62f, maxHeight * .46f)
-                else minOf(280.dp, availableWidth * .52f, maxHeight * .42f)
             val minContentHeight = if (childMode) maxHeight else 0.dp
-            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = minContentHeight)
-                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = if (childMode) 28.dp else 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    if (childMode || sleepSeconds > 0) {
-                        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                            if (childMode && settings.libraryEnabled) {
-                                RoundControl(Icons.Default.LibraryMusic, "Bibliothek", 52.dp, Navy.copy(alpha = .85f), Color.White, onOpenLibrary)
-                            }
+            val availableWidth = (maxWidth - 24.dp).coerceAtLeast(0.dp)
+            val coverSize = if (childMode) minOf(290.dp, availableWidth * .53f, maxHeight * .29f)
+                else minOf(280.dp, availableWidth * .52f, maxHeight * .42f)
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = minContentHeight)
+                    .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = if (childMode) 22.dp else 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if ((childMode && settings.libraryEnabled) || sleepSeconds > 0) {
+                        Row(Modifier.fillMaxWidth().padding(end = 60.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (childMode && settings.libraryEnabled) RoundControl(Icons.Default.LibraryMusic, "Bibliothek", 48.dp, Color.White.copy(alpha = .85f), Navy, onOpenLibrary)
                             Spacer(Modifier.weight(1f))
                             if (sleepSeconds > 0) SleepTimerBadge(sleepSeconds)
                         }
-                    }
-                    Text(title, Modifier.fillMaxWidth().background(Color.White.copy(alpha = .8f), RoundedCornerShape(15.dp)).padding(10.dp),
-                        color = Navy, fontWeight = FontWeight.ExtraBold, fontSize = if (childMode) 28.sp else 22.sp,
+                    } else if (childMode) Spacer(Modifier.height(52.dp))
+                    Text(title, Modifier.fillMaxWidth().background(Color.White.copy(alpha = .8f), RoundedCornerShape(15.dp)).padding(horizontal = 10.dp, vertical = 6.dp),
+                        color = Navy, fontWeight = FontWeight.ExtraBold, fontSize = if (childMode) 27.sp else 22.sp,
                         textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     active?.track?.let { track ->
-                        val meta = listOfNotNull(track.genre, track.ageRecommendation?.let { "Ab $it J." }, track.runtimeMinutes?.let { "$it min" }).joinToString(" · ")
-                        if (meta.isNotBlank()) Text(meta, color = Color.White, fontSize = 13.sp)
+                        val meta = listOfNotNull(track.genre, track.ageRecommendation?.let { "Ab $it J." }, track.runtimeMinutes?.let { "$it min" }).filter { it.isNotBlank() }.joinToString(" · ")
+                        if (meta.isNotBlank()) Text(meta, Modifier.background(Color.White.copy(alpha = .8f), CircleShape).padding(horizontal = 9.dp, vertical = 2.dp), color = Navy, fontSize = 12.sp, textAlign = TextAlign.Center)
                     }
-                    Box(Modifier.size(coverSize).shadow(8.dp, coverShape).clip(coverShape).background(Gray).border(4.dp, Color.White, coverShape)) {
+                    Box(Modifier.size(coverSize).shadow(8.dp, coverShape).clip(coverShape).background(Gray).border(3.dp, Color.White, coverShape)) {
                         CoverArt(active?.track?.coverUri, Modifier.fillMaxSize(), title)
                     }
-                }
-                Column(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    val colorful = childMode && settings.colorfulControls
-                    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        val playSize = (maxWidth * .35f).coerceIn(64.dp, 110.dp)
-                        val sideSize = (maxWidth * .22f).coerceIn(44.dp, 75.dp)
+                    BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 5.dp), contentAlignment = Alignment.Center) {
+                        val playSize = (maxWidth * .29f).coerceIn(60.dp, 100.dp)
+                        val sideSize = (maxWidth * .19f).coerceIn(48.dp, 70.dp)
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RoundControl(Icons.Default.VolumeDown, "Leiser", sideSize, if (colorful) Color(0xFFF1C40F) else Gray, Navy) { vm.adjustVolume(-.1f) }
-                            RoundControl(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Wiedergabe", playSize, Green, Color.White, vm::togglePlay)
-                            RoundControl(Icons.Default.VolumeUp, "Lauter", sideSize, if (colorful) Color(0xFFFF4757) else Gray, if (colorful) Color.White else Navy) { vm.adjustVolume(.1f) }
+                            RoundControl(Icons.Default.Remove, "Leiser", sideSize, if (colorful) Color(0xFFF1C40F) else Gray, Navy) { vm.adjustVolume(-.1f) }
+                            RoundControl(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, if (playing) "Pause" else "Wiedergabe", playSize, if (childMode) Red else Green, Color.White, vm::togglePlay)
+                            RoundControl(Icons.Default.Add, "Lauter", sideSize, if (colorful) Red else Gray, if (colorful) Color.White else Navy) { vm.adjustVolume(.1f) }
                         }
                     }
-                    LinearProgressIndicator(progress = { volumeLevel }, modifier = Modifier.fillMaxWidth(.85f).height(22.dp).clip(CircleShape)
-                        .semantics { contentDescription = "Lautstärke" }, color = volumeColor, trackColor = Color.White.copy(alpha = .75f))
-                    BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        val size = minOf((maxWidth * .2f).coerceIn(44.dp, 70.dp), (maxWidth - 24.dp).coerceAtLeast(0.dp) / 4)
+                    LinearProgressIndicator(progress = { volumeLevel }, modifier = Modifier.fillMaxWidth(.84f).height(16.dp).clip(CircleShape)
+                        .semantics { contentDescription = "Lautstärke" }, color = volumeColor, trackColor = Color.White.copy(alpha = .78f))
+                    BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 4.dp), contentAlignment = Alignment.Center) {
+                        val size = minOf((maxWidth * .19f).coerceIn(48.dp, 68.dp), (maxWidth - 24.dp).coerceAtLeast(0.dp) / 4)
+                        val iconColor = if (colorful) Color.White else Navy
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            RoundControl(Icons.Default.Replay, "Von vorn", size, if (colorful) Color(0xFFE17055) else Gray, Navy, vm::restartPlaylist)
-                            RoundControl(Icons.Default.FastRewind, "30 Sekunden zurück", size, if (colorful) Blue else Gray, Navy, vm::skipBack)
-                            RoundControl(Icons.Default.FastForward, "30 Sekunden vor", size, if (colorful) Color(0xFF9B59B6) else Gray, Navy, vm::skipForward)
-                            RoundControl(Icons.Default.SkipNext, "Nächstes Kapitel oder nächste Datei", size, if (colorful) Color(0xFF00CEC9) else Gray, Navy, vm::nextFileOrCue)
+                            RoundControl(Icons.Default.SkipPrevious, "Hörspiel von vorn", size, if (colorful) Color(0xFF1D719F) else Gray, iconColor, vm::restartPlaylist)
+                            RoundControl(Icons.Default.FastRewind, "30 Sekunden zurück", size, if (colorful) Color(0xFFB74E3A) else Gray, iconColor, vm::skipBack)
+                            RoundControl(Icons.Default.FastForward, "30 Sekunden vor", size, if (colorful) Color(0xFF834BA4) else Gray, iconColor, vm::skipForward)
+                            RoundControl(Icons.Default.SkipNext, "Nächstes Kapitel oder nächste Datei", size, if (colorful) Color(0xFF007E83) else Gray, iconColor, vm::nextFileOrCue)
                         }
                     }
-                    Column(Modifier.fillMaxWidth(.9f).background(Color.White.copy(alpha = .85f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${formatTime(pos)} / ${formatTime(duration)}", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Slider(value = pos.coerceIn(0L, duration.coerceAtLeast(0L)).toFloat(), onValueChange = { vm.seekTo(it.toLong()) },
-                            enabled = duration > 0, valueRange = 0f..duration.coerceAtLeast(1).toFloat(), colors = SliderDefaults.colors(thumbColor = Blue, activeTrackColor = Blue))
+                }
+                Column(Modifier.fillMaxWidth(.9f).padding(top = 18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.fillMaxWidth().background(Color.White.copy(alpha = .85f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(if (childMode && duration > 0) "−${formatTime((duration - pos).coerceAtLeast(0L))}" else "${formatTime(pos)} / ${formatTime(duration)}", color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Slider(value = pos.coerceIn(0L, duration.coerceAtLeast(0L)).toFloat(), onValueChange = { vm.seekTo(it.toLong()) }, enabled = duration > 0,
+                            modifier = Modifier.semantics { contentDescription = "Wiedergabeposition" }, valueRange = 0f..duration.coerceAtLeast(1L).toFloat(), colors = SliderDefaults.colors(thumbColor = Blue, activeTrackColor = Blue))
                     }
-                    if (!childMode) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (!childMode) FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(onClick = onOpenLibrary) { Text("Bibliothek") }
                         Button(onClick = { vm.speakTitle(active?.track?.title ?: "KlangKiste") }) { Text("Titel ansagen") }
                     }
@@ -172,7 +175,7 @@ fun SleepOverlay(blackout: Boolean, onExit: () -> Unit) {
             val transition = rememberInfiniteTransition(label = "sleep")
             val scale by transition.animateFloat(1f, 1.04f, infiniteRepeatable(tween(3000), RepeatMode.Reverse), label = "pulse")
             Image(painterResource(R.drawable.background_sleep), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                 Image(painterResource(R.drawable.note_sleeping_small), "Schlafende Note", Modifier.size(150.dp).graphicsLayer(scaleX = scale, scaleY = scale), contentScale = ContentScale.Fit)
                 Spacer(Modifier.height(16.dp))
                 Text("Schlafenszeit …", color = Color.White.copy(alpha = .75f), fontSize = 20.sp)
